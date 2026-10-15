@@ -22,3 +22,6 @@ Package.resolved
 .env.*
 __pycache__/
 dist/
+
+# Private checkout notes.
+memory.md

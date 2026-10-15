@@ -74,6 +74,10 @@ ClearURLs' redirector-unwrapping, exception lists, or URL-blocking
 features. See [THIRD_PARTY_LICENSES/README.md](THIRD_PARTY_LICENSES/README.md)
 for the full license/attribution details and exactly what was excluded and why.
 
+YouTube `/watch` links with a video ID, an `RD…` radio playlist, and
+`start_radio=1` also have `list` and `start_radio` removed. Regular playlists,
+timestamps, and other non-tracking parameters are preserved.
+
 To refresh the catalog from upstream (a manual, offline step — never run by
 the app itself):
 

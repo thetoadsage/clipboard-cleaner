@@ -108,7 +108,37 @@ struct URLCleanerTests {
         #expect(URLCleaner.clean(input) == "http://example.com/page?q=1")
     }
 
-    // MARK: - YouTube `si` tracking parameter
+    // MARK: - YouTube share and radio parameters
+
+    @Test func removesYoutubeRadioContextFromReportedURL() {
+        let input = "https://www.youtube.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0&start_radio=1"
+        let result = URLCleaner.cleanWithDetails(input)
+        #expect(result.cleaned == "https://www.youtube.com/watch?v=A7lLHJ6yfH0")
+        #expect(result.parametersRemoved == 2)
+        #expect(URLCleaner.cleanWithDetails(result.cleaned).parametersRemoved == 0)
+    }
+
+    @Test(arguments: ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"])
+    func removesYoutubeRadioContextAlongsideTrackingButKeepsTimestamp(host: String) {
+        let input = "https://\(host)/watch?start_radio=1&t=42&list=RDA7lLHJ6yfH0&v=A7lLHJ6yfH0&si=share#chapter"
+        let result = URLCleaner.cleanWithDetails(input)
+        #expect(result.cleaned == "https://\(host)/watch?t=42&v=A7lLHJ6yfH0#chapter")
+        #expect(result.parametersRemoved == 3)
+    }
+
+    @Test(arguments: [
+        "https://www.youtube.com/watch?v=A7lLHJ6yfH0&list=PL123&start_radio=1",
+        "https://www.youtube.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0",
+        "https://www.youtube.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0&start_radio=0",
+        "https://www.youtube.com/playlist?list=RDA7lLHJ6yfH0&start_radio=1",
+        "https://www.youtube.com/watch?list=RDA7lLHJ6yfH0&start_radio=1",
+        "https://www.youtube.com/watch?v=&list=RDA7lLHJ6yfH0&start_radio=1",
+        "https://youtube.com.example.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0&start_radio=1",
+        "https://notyoutube.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0&start_radio=1",
+    ])
+    func preservesParametersOutsideYoutubeVideoRadioContext(input: String) {
+        #expect(URLCleaner.clean(input) == input)
+    }
 
     @Test func removesSiFromYoutuBeShareLink() {
         let input = "https://youtu.be/eMuYxfL6zYc?si=0-8wqsHsdslkcwYN"
