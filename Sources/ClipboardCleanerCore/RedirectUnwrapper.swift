@@ -1,12 +1,14 @@
 import Foundation
 
 /// Locally unwraps a small, explicit list of known "wrapper" URLs whose
-/// true destination is embedded directly in one of their own query
-/// parameters -- as opposed to opaque shorteners (bit.ly, t.co, tinyurl,
+/// true destination is embedded in their query parameters or encoded path
+/// -- as opposed to opaque shorteners (bit.ly, t.co, tinyurl,
 /// etc.), whose destination only exists on the shortener's own server and
 /// can't be recovered without making an HTTP request. This app never makes
 /// network requests, so opaque shorteners are deliberately not handled;
-/// only wrappers that carry their destination in plain text are.
+/// only wrappers that carry a locally decodable HTTP(S) destination are.
+/// Additional formats were reviewed against uAssets at c07a29d; see
+/// THIRD_PARTY_LICENSES/README.md for matching-data provenance.
 enum RedirectUnwrapper {
 
     /// The result of unwrapping: the final URL string (or the original
@@ -28,7 +30,20 @@ enum RedirectUnwrapper {
         /// the destination directly in their raw query string.
         let parameterNames: [String]
         let usesRawQueryAsDestination: Bool
+        let encoding: DestinationEncoding
+
+        init(matchesHost: @escaping (String) -> Bool, matchesPath: @escaping (String) -> Bool,
+             parameterNames: [String], usesRawQueryAsDestination: Bool = false,
+             encoding: DestinationEncoding = .plain) {
+            self.matchesHost = matchesHost
+            self.matchesPath = matchesPath
+            self.parameterNames = parameterNames
+            self.usesRawQueryAsDestination = usesRawQueryAsDestination
+            self.encoding = encoding
+        }
     }
+
+    private enum DestinationEncoding { case plain, bingBase64 }
 
     // Immutable after initialization; the compiler can't prove function
     // values are Sendable, but there's no shared mutable state here.
@@ -67,6 +82,30 @@ enum RedirectUnwrapper {
             parameterNames: [],
             usesRawQueryAsDestination: true
         ),
+        WrapperRule(
+            matchesHost: { $0 == "duckduckgo.com" },
+            matchesPath: { $0 == "/l/" }, parameterNames: ["uddg"]
+        ),
+        WrapperRule(
+            matchesHost: { $0 == "www.linkedin.com" || $0 == "linkedin.com" },
+            matchesPath: { $0 == "/redir/redirect" }, parameterNames: ["url"]
+        ),
+        WrapperRule(
+            matchesHost: { ["l.threads.net", "l.threads.com", "l.instagram.com"].contains($0) },
+            matchesPath: { $0 == "/" }, parameterNames: ["u"]
+        ),
+        WrapperRule(
+            matchesHost: { $0 == "go.skimresources.com" || $0 == "go.redirectingat.com" },
+            matchesPath: { $0 == "/" }, parameterNames: ["url"]
+        ),
+        WrapperRule(
+            matchesHost: { $0 == "click.linksynergy.com" },
+            matchesPath: { $0 == "/deeplink" || $0 == "/link" }, parameterNames: ["murl"]
+        ),
+        WrapperRule(
+            matchesHost: { $0 == "bing.com" || $0 == "www.bing.com" },
+            matchesPath: { $0 == "/ck/a" }, parameterNames: ["u"], encoding: .bingBase64
+        ),
     ]
 
     private static let maxUnwrapDepth = 3
@@ -76,10 +115,12 @@ enum RedirectUnwrapper {
     /// (all of which are discarded by the replacement). Returns nil if
     /// `url` isn't a recognized wrapper.
     private static func validHTTPDestination(_ value: String) -> String? {
-        guard let destination = URL(string: value),
+        guard value.utf8.count <= URLCleaner.maxInputLengthBytes,
+            value.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+            let destination = URL(string: value),
             let scheme = destination.scheme?.lowercased(),
             (scheme == "http" || scheme == "https"),
-            destination.host != nil
+            let host = destination.host, !host.isEmpty
         else {
             return nil
         }
@@ -88,13 +129,29 @@ enum RedirectUnwrapper {
 
     private static func unwrap(_ url: URL) -> (destination: String, parameterCount: Int)? {
         guard let host = url.host?.lowercased(),
-            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let queryItems = components.queryItems
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else {
             return nil
         }
 
-        for rule in rules where rule.matchesHost(host) && rule.matchesPath(url.path) {
+        // Reddit email links carry an encoded URL in a bounded CL0 path,
+        // followed by the hop number and tracking identifier. Decode once;
+        // escapes inside the destination must remain destination escapes.
+        if host == "click.redditmail.com" {
+            let path = components.percentEncodedPath
+            let pattern = #"^/CL0/(https?%3[Aa]%2[Ff]%2[Ff][^/]+)/[0-9]/[a-f0-9-]+/\z"#
+            if let range = path.range(of: pattern, options: .regularExpression) {
+                let matched = String(path[range]).split(separator: "/")
+                if matched.count == 4, let decoded = String(matched[1]).removingPercentEncoding,
+                    let destination = validHTTPDestination(decoded) {
+                    return (destination, components.queryItems?.count ?? 0)
+                }
+            }
+        }
+
+        guard let queryItems = components.queryItems else { return nil }
+
+        for rule in rules where rule.matchesHost(host) && rule.matchesPath(components.path) {
             if rule.usesRawQueryAsDestination,
                 let rawQuery = components.percentEncodedQuery
             {
@@ -126,8 +183,12 @@ enum RedirectUnwrapper {
             }
 
             for name in rule.parameterNames {
-                if let value = queryItems.first(where: { $0.name == name })?.value,
-                    let destination = validHTTPDestination(value)
+                let matches = queryItems.filter { $0.name == name }
+                // Multiple destination values are ambiguous; keep the wrapper.
+                guard matches.count <= 1 else { return nil }
+                if let value = matches.first?.value,
+                    let decoded = decode(value, encoding: rule.encoding),
+                    let destination = validHTTPDestination(decoded)
                 {
                     return (destination, queryItems.count)
                 }
@@ -135,6 +196,20 @@ enum RedirectUnwrapper {
         }
 
         return nil
+    }
+
+    private static func decode(_ value: String, encoding: DestinationEncoding) -> String? {
+        guard encoding == .bingBase64 else { return value }
+        guard value.hasPrefix("a1") else { return nil }
+        var payload = String(value.dropFirst(2))
+        guard !payload.isEmpty, payload.utf8.count <= URLCleaner.maxInputLengthBytes,
+            payload.range(of: #"\A[A-Za-z0-9_+/\-]+={0,2}\z"#, options: .regularExpression) != nil
+        else { return nil }
+        payload = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.utf8.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload), let decoded = String(data: data, encoding: .utf8)
+        else { return nil }
+        return decoded
     }
 
     /// Repeatedly unwraps `input` (in case a wrapper points at another

@@ -4,8 +4,8 @@ private final class CatalogBundleAnchor: NSObject {}
 
 /// A catalog of tracking query-parameter rules, loaded once from the bundled
 /// `tracking-rules.json` resource (see `scripts/update_tracking_rules.py`
-/// for provenance: derived from ClearURLs/Rules, LGPL-3.0, plus a small
-/// hand-maintained set of global additions).
+/// for provenance: ClearURLs/Rules, LGPL-3.0; a reviewed uAssets subset,
+/// GPL-3.0; and separately maintained local additions).
 ///
 /// Rule strings that are plain identifiers (letters/digits/underscore) are
 /// matched as exact names via `Set` lookup; anything else is compiled once
@@ -62,14 +62,52 @@ struct TrackingRuleCatalog {
         let regexes: [NSRegularExpression]
     }
 
+    enum ParameterAction: String, Decodable {
+        case remove, preserve
+    }
+
+    /// A reviewed override for one parameter. Preservation wins over removal;
+    /// conditional removal replaces a legacy name-only match for that name.
+    struct ParameterRule {
+        let name: NSRegularExpression
+        let value: NSRegularExpression?
+        let action: ParameterAction
+
+        func matchesName(_ input: String) -> Bool {
+            name.firstMatch(in: input, range: NSRange(input.startIndex..<input.endIndex, in: input)) != nil
+        }
+
+        func matchesValue(_ input: String?) -> Bool {
+            guard let value else { return true }
+            let input = input ?? ""
+            guard input.utf8.count <= URLCleaner.maxInputLengthBytes else { return false }
+            return value.firstMatch(in: input, range: NSRange(input.startIndex..<input.endIndex, in: input)) != nil
+        }
+    }
+
+    private struct ScopedParameterRule {
+        let url: NSRegularExpression
+        let exceptions: [NSRegularExpression]
+        let parameter: ParameterRule
+    }
+
     /// Rules selected for one URL. Constructing this once per URL avoids
     /// repeating domain matching for every query item in that URL.
     struct ApplicableRules {
         let literal: Set<String>
         let regexes: [NSRegularExpression]
+        let parameterRules: [ParameterRule]
 
-        func contains(_ name: String) -> Bool {
+        func contains(_ name: String, value: String? = nil) -> Bool {
             guard name.utf8.count <= TrackingRuleCatalog.maxParameterNameLength else { return false }
+            let overrides = parameterRules.filter { $0.matchesName(name) }
+            if overrides.contains(where: { $0.action == .preserve && $0.matchesValue(value) }) {
+                return false
+            }
+            let removals = overrides.filter { $0.action == .remove }
+            if !removals.isEmpty {
+                return removals.contains { $0.matchesValue(value) }
+            }
             let lower = name.lowercased()
             let range = NSRange(lower.startIndex..<lower.endIndex, in: lower)
             return literal.contains(lower) || regexes.contains {
@@ -84,11 +122,19 @@ struct TrackingRuleCatalog {
             let exceptions: [String]
             let rules: [String]
         }
+        struct Parameter: Decodable {
+            let urlPattern: String
+            let namePattern: String
+            let valuePattern: String?
+            let exceptions: [String]
+            let action: ParameterAction
+        }
         let global: [String]
         let localGlobalAdditions: [String]?
         let domains: [String: [String]]
         let wildcardTLDDomains: [String: [String]]?
         let providers: [Provider]?
+        let parameterRules: [Parameter]?
     }
 
     private let globalLiteral: Set<String>
@@ -96,6 +142,7 @@ struct TrackingRuleCatalog {
     private let domainEntries: [DomainEntry]
     private let wildcardDomainEntries: [WildcardDomainEntry]
     private let providerEntries: [ProviderEntry]
+    private let scopedParameterRules: [ScopedParameterRule]
 
     static let shared = TrackingRuleCatalog.loadBundled()
 
@@ -104,14 +151,15 @@ struct TrackingRuleCatalog {
         globalRegex: [],
         domainEntries: [],
         wildcardDomainEntries: [],
-        providerEntries: []
+        providerEntries: [],
+        scopedParameterRules: []
     )
 
     /// Returns true if `name` is a known tracking parameter, either
     /// globally or specifically for `host` (and its subdomains). Provider
     /// rules require the full URL to evaluate paths and exceptions.
-    func isTrackingParameter(_ name: String, host: String?, url: String? = nil) -> Bool {
-        return rules(for: host, url: url).contains(name)
+    func isTrackingParameter(_ name: String, host: String?, url: String? = nil, value: String? = nil) -> Bool {
+        return rules(for: host, url: url).contains(name, value: value)
     }
 
     /// Selects global, host, and provider rules once for a URL. The returned
@@ -119,9 +167,10 @@ struct TrackingRuleCatalog {
     func rules(for host: String?, url: String? = nil) -> ApplicableRules {
         var literal = globalLiteral
         var regexes = globalRegex
+        var parameterRules = [ParameterRule]()
 
         guard let host = host?.lowercased() else {
-            return ApplicableRules(literal: literal, regexes: regexes)
+            return ApplicableRules(literal: literal, regexes: regexes, parameterRules: [])
         }
 
         for entry in domainEntries where HostMatching.matches(host: host, domain: entry.domain) {
@@ -151,9 +200,15 @@ struct TrackingRuleCatalog {
                 literal.formUnion(entry.literal)
                 regexes.append(contentsOf: entry.regexes)
             }
+            for rule in scopedParameterRules {
+                guard rule.url.firstMatch(in: matchingURL, range: range) != nil,
+                    !rule.exceptions.contains(where: { $0.firstMatch(in: matchingURL, range: range) != nil })
+                else { continue }
+                parameterRules.append(rule.parameter)
+            }
         }
 
-        return ApplicableRules(literal: literal, regexes: regexes)
+        return ApplicableRules(literal: literal, regexes: regexes, parameterRules: parameterRules)
     }
 
     private static func loadBundled() -> TrackingRuleCatalog {
@@ -230,12 +285,17 @@ struct TrackingRuleCatalog {
 
         let providers = file.providers ?? []
         let providerPatterns = providers.flatMap { [$0.urlPattern] + $0.exceptions + $0.rules }
+        let parameters = file.parameterRules ?? []
+        let parameterPatterns = parameters.flatMap {
+            [$0.urlPattern, $0.namePattern] + $0.exceptions + ($0.valuePattern.map { [$0] } ?? [])
+        }
         let allPatterns =
             file.global
             + (file.localGlobalAdditions ?? [])
             + file.domains.values.flatMap { $0 }
             + (file.wildcardTLDDomains ?? [:]).values.flatMap { $0 }
             + providerPatterns
+            + parameterPatterns
 
         guard isCatalogWithinSafeBounds(allPatterns: allPatterns) else {
             return .empty
@@ -273,12 +333,37 @@ struct TrackingRuleCatalog {
             ))
         }
 
+        var scopedParameterRules = [ScopedParameterRule]()
+        for rule in parameters {
+            // Never ignore a malformed preservation rule and keep stripping.
+            guard let url = try? NSRegularExpression(pattern: rule.urlPattern, options: [.caseInsensitive]),
+                let name = try? NSRegularExpression(pattern: "\\A(?:\(rule.namePattern))\\z", options: [.caseInsensitive])
+            else { return .empty }
+            var exceptions = [NSRegularExpression]()
+            for pattern in rule.exceptions {
+                guard let exception = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+                else { return .empty }
+                exceptions.append(exception)
+            }
+            var value: NSRegularExpression?
+            if let pattern = rule.valuePattern {
+                guard let compiled = try? NSRegularExpression(pattern: "\\A(?:\(pattern))\\z")
+                else { return .empty }
+                value = compiled
+            }
+            scopedParameterRules.append(ScopedParameterRule(
+                url: url, exceptions: exceptions,
+                parameter: ParameterRule(name: name, value: value, action: rule.action)
+            ))
+        }
+
         return TrackingRuleCatalog(
             globalLiteral: globalLiteral,
             globalRegex: globalRegex,
             domainEntries: domainEntries,
             wildcardDomainEntries: wildcardDomainEntries,
-            providerEntries: providerEntries
+            providerEntries: providerEntries,
+            scopedParameterRules: scopedParameterRules
         )
     }
 

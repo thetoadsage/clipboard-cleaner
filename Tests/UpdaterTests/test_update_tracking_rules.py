@@ -1,4 +1,6 @@
 import importlib.util
+import copy
+import json
 import re
 import tempfile
 import unittest
@@ -14,6 +16,51 @@ SPEC.loader.exec_module(updater)
 
 
 class UpdateTrackingRulesTests(unittest.TestCase):
+    def test_bundled_reviewed_rules_match_maintained_snapshot(self):
+        bundled = json.loads(updater.OUTPUT_PATH.read_text())
+        regenerated = updater.add_reviewed_rules(copy.deepcopy(bundled))
+        self.assertEqual(bundled["parameterRules"], regenerated["parameterRules"])
+        self.assertEqual(bundled["reviewedSource"], regenerated["reviewedSource"])
+
+    def test_reviewed_snapshot_retains_provenance_and_global_exceptions(self):
+        exception = r"^https?://accounts\.example\.com/"
+        generated = updater.build_catalog("a" * 40, {"providers": {
+            "globalRules": {"urlPattern": ".*", "rules": ["utm_source"], "exceptions": [exception]},
+        }})
+        self.assertRegex(generated["reviewedSource"]["commit"], r"^[a-f0-9]{40}$")
+        self.assertEqual(generated["reviewedSource"]["license"], "GPL-3.0")
+        for rule in generated["parameterRules"]:
+            if rule["action"] == "remove" and rule["urlPattern"] == ".*":
+                self.assertIn(exception, rule["exceptions"])
+        self.assertTrue(any(rule.get("valuePattern") for rule in generated["parameterRules"]))
+        self.assertTrue(any(rule["action"] == "preserve" for rule in generated["parameterRules"]))
+
+    def test_invalid_reviewed_snapshot_does_not_replace_resource(self):
+        original = json.loads(updater.REVIEWED_RULES_PATH.read_text())
+        for field, invalid in [
+            ("namePattern", "["), ("valuePattern", "["), ("exceptions", ["["]),
+            ("action", "unknown"), ("urlPattern", "unanchored"),
+            ("namePattern", "x" * (updater.MAX_PATTERN_BYTES + 1)),
+        ]:
+            with self.subTest(field=field, invalid=invalid), tempfile.TemporaryDirectory() as root:
+                snapshot = copy.deepcopy(original)
+                snapshot["parameterRules"][0][field] = invalid
+                manifest = Path(root) / "reviewed.json"
+                manifest.write_text(json.dumps(snapshot))
+                output = Path(root) / "catalog.json"
+                output.write_text("original")
+                data = {"providers": {"globalRules": {"urlPattern": ".*", "rules": ["utm_source"]}}}
+                with patch.object(updater, "REVIEWED_RULES_PATH", manifest), patch.object(updater, "OUTPUT_PATH", output), patch.object(updater, "fetch_pinned_upstream", return_value=("a" * 40, data)):
+                    with self.assertRaises((ValueError, re.error)):
+                        updater.main()
+                self.assertEqual(output.read_text(), "original")
+
+    def test_reviewed_patterns_count_toward_runtime_limit(self):
+        data = {"providers": {"globalRules": {"urlPattern": ".*", "rules": ["x"]}}}
+        with patch.object(updater, "MAX_PATTERN_COUNT", 30):
+            with self.assertRaisesRegex(ValueError, "count limit"):
+                updater.build_catalog("a" * 40, data)
+
     def test_fetches_commit_before_rules_and_pins_rules_url(self):
         sha = "a" * 40
         calls = []

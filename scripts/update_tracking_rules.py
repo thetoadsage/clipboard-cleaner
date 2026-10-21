@@ -21,6 +21,9 @@ Run this occasionally by hand to refresh the catalog:
 
 It requires network access; the generated JSON is committed to the repo and
 is the only thing the app reads at runtime.
+
+The local uassets-reviewed-rules.json snapshot (GPL-3.0) is validated and
+included on every refresh. It is deliberately curated, not a filter parser.
 """
 from __future__ import annotations
 
@@ -33,6 +36,7 @@ from pathlib import Path
 
 COMMIT_API_URL = "https://api.github.com/repos/ClearURLs/Rules/commits/master"
 RULES_URL_TEMPLATE = "https://raw.githubusercontent.com/ClearURLs/Rules/{sha}/data.min.json"
+REVIEWED_RULES_PATH = Path(__file__).with_name("uassets-reviewed-rules.json")
 # Match TrackingRuleCatalog's runtime limits so an update cannot produce a
 # resource the app would reject as oversized.
 MAX_PATTERN_BYTES = 500
@@ -161,6 +165,58 @@ def validate_upstream_schema(data: object) -> dict:
     return providers
 
 
+def add_reviewed_rules(catalog: dict) -> dict:
+    """Include a local, reviewed snapshot; never fetch or interpret uBO filters.
+
+    Preserve overrides win at runtime. Global removals inherit ClearURLs'
+    global exceptions, so adding another source cannot bypass those scopes.
+    Validate the entire snapshot before the caller replaces the resource.
+    """
+    reviewed = json.loads(REVIEWED_RULES_PATH.read_text())
+    source = reviewed["source"]
+    if (source["repository"] != "https://github.com/uBlockOrigin/uAssets"
+            or source["license"] != "GPL-3.0"
+            or not re.fullmatch(r"[0-9a-f]{40}", source["commit"])):
+        raise ValueError("invalid reviewed rule provenance")
+    entries = reviewed["parameterRules"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("reviewed parameterRules must be a non-empty array")
+    global_exceptions = next(
+        (p["exceptions"] for p in catalog["providers"] if p["name"] == "globalRules"), []
+    )
+    rules = []
+    for entry in entries:
+        if (not isinstance(entry, dict)
+                or set(entry) - {"id", "urlPattern", "namePattern", "valuePattern", "action", "exceptions"}
+                or not {"id", "urlPattern", "namePattern", "action", "exceptions"} <= set(entry)
+                or entry["action"] not in ("remove", "preserve")
+                or not isinstance(entry["exceptions"], list)):
+            raise ValueError("invalid reviewed parameter rule")
+        rule = dict(entry)
+        if rule["action"] == "remove" and rule["urlPattern"] == ".*":
+            rule["exceptions"] = list(dict.fromkeys(rule["exceptions"] + global_exceptions))
+        patterns = [rule["urlPattern"], rule["namePattern"], *rule["exceptions"]]
+        if "valuePattern" in rule:
+            patterns.append(rule["valuePattern"])
+        for pattern in patterns:
+            if not isinstance(pattern, str) or not pattern or len(pattern.encode("utf-8")) > MAX_PATTERN_BYTES:
+                raise ValueError("invalid or oversized reviewed pattern")
+            re.compile(pattern)
+        if rule["urlPattern"] != ".*" and not rule["urlPattern"].startswith("^https?://"):
+            raise ValueError("reviewed URL pattern must be anchored to HTTP(S)")
+        rules.append(rule)
+    patterns = [r for p in catalog["providers"] for r in [p["urlPattern"], *p["exceptions"], *p["rules"]]]
+    patterns += catalog["global"] + catalog["localGlobalAdditions"]
+    patterns += [r for ruleset in catalog["domains"].values() for r in ruleset]
+    patterns += [r for rule in rules for r in [rule["urlPattern"], rule["namePattern"], *rule["exceptions"]]]
+    patterns += [rule["valuePattern"] for rule in rules if "valuePattern" in rule]
+    if len(patterns) > MAX_PATTERN_COUNT:
+        raise ValueError("catalog exceeds runtime pattern count limit")
+    catalog["reviewedSource"] = source
+    catalog["parameterRules"] = rules
+    return catalog
+
+
 def build_catalog(commit_sha: str, data: object) -> dict:
     providers = validate_upstream_schema(data)
     scoped_providers = []
@@ -190,7 +246,7 @@ def build_catalog(commit_sha: str, data: object) -> dict:
     if pattern_count > MAX_PATTERN_COUNT:
         raise ValueError("catalog exceeds runtime pattern count limit")
 
-    return {
+    return add_reviewed_rules({
         "source": "Derived from ClearURLs/Rules (https://github.com/ClearURLs/Rules), LGPL-3.0",
         "sourceCommit": commit_sha,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -207,7 +263,7 @@ def build_catalog(commit_sha: str, data: object) -> dict:
         "localDomainAdditions": LOCAL_DOMAIN_ADDITIONS,
         "domains": LOCAL_DOMAIN_ADDITIONS,
         "providers": sorted(scoped_providers, key=lambda p: p["name"]),
-    }
+    })
 
 
 def main() -> int:
@@ -218,6 +274,7 @@ def main() -> int:
 
     print(f"Wrote {OUTPUT_PATH}")
     print(f"  scoped providers: {len(output['providers'])}")
+    print(f"  reviewed parameter rules: {len(output['parameterRules'])}")
 
     return 0
 

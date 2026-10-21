@@ -10,7 +10,8 @@ import Foundation
 ///    AliExpress, Amazon). Only applies when host *and* path confidently
 ///    match; otherwise falls through untouched.
 /// 3. `TrackingRuleCatalog` -- the default: removes known tracking query
-///    parameters by name, leaving everything else (including URLs that
+///    parameters by name, honoring reviewed value conditions and preservation
+///    overrides, leaving everything else (including URLs that
 ///    didn't match layer 1 or 2 at all) untouched. This is what keeps the
 ///    app safe for the long tail of sites it hasn't specifically reviewed.
 ///
@@ -106,7 +107,7 @@ public enum URLCleaner {
             $0.name == "list" && ($0.value ?? "").hasPrefix("FL") && ($0.value ?? "").count > 2
         }
         let filteredItems = originalItems.filter {
-            !applicableRules.contains($0.name)
+            !applicableRules.contains($0.name, value: $0.value)
                 && !(removesShortsShareParameter && $0.name.lowercased() == "is")
                 && !(removesRadioContext && ($0.name == "list" || $0.name == "start_radio"))
                 && !(removesFavoritesContext && ($0.name == "list" || $0.name == "index"))

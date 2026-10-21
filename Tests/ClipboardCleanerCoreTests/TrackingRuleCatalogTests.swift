@@ -3,6 +3,63 @@ import Testing
 @testable import ClipboardCleanerCore
 
 struct TrackingRuleCatalogTests {
+    @Test func parameterOverridesUseValuesAndPreservationWinsInEitherOrder() throws {
+        let remove: [String: Any] = [
+            "urlPattern": "^https://example\\.com/", "namePattern": "token",
+            "valuePattern": "[a-z]{6,}", "action": "remove", "exceptions": [String](),
+        ]
+        let preserve: [String: Any] = [
+            "urlPattern": "^https://example\\.com/login(?=[/?#]|$)", "namePattern": "token",
+            "action": "preserve", "exceptions": [String](),
+        ]
+        for entries in [[remove, preserve], [preserve, remove]] {
+            let json: [String: Any] = ["global": ["token", "utm_source"], "domains": [String: [String]](), "parameterRules": entries]
+            let catalog = TrackingRuleCatalog.load(from: try JSONSerialization.data(withJSONObject: json))
+            let ordinary = catalog.rules(for: "example.com", url: "https://example.com/search")
+            #expect(ordinary.contains("token", value: "abcdef"))
+            #expect(!ordinary.contains("token", value: "abc"))
+            #expect(!ordinary.contains("token", value: nil))
+            #expect(!ordinary.contains("token", value: "abcdef\n"))
+            #expect(!ordinary.contains("token", value: String(repeating: "a", count: URLCleaner.maxInputLengthBytes + 1)))
+            #expect(!ordinary.contains("token_suffix", value: "abcdef"))
+            let login = catalog.rules(for: "example.com", url: "https://user:pass@example.com:443/login?token=abcdef")
+            #expect(!login.contains("TOKEN", value: "abcdef"))
+            #expect(login.contains("utm_source", value: "tracking"))
+            #expect(catalog.rules(for: "other.com", url: "https://other.com/").contains("token", value: "abc"))
+        }
+    }
+
+    @Test(arguments: ["urlPattern", "namePattern", "valuePattern", "exceptions", "action"])
+    func invalidParameterOverrideDisablesEntireCatalog(field: String) throws {
+        var rule: [String: Any] = [
+            "urlPattern": ".*", "namePattern": "token", "valuePattern": ".*",
+            "action": "preserve", "exceptions": [String](),
+        ]
+        rule[field] = field == "exceptions" ? ["["] : "["
+        let json: [String: Any] = ["global": ["utm_source"], "domains": [String: [String]](), "parameterRules": [rule]]
+        let catalog = TrackingRuleCatalog.load(from: try JSONSerialization.data(withJSONObject: json))
+        #expect(!catalog.rules(for: "example.com", url: "https://example.com/").contains("utm_source"))
+    }
+
+    @Test func parameterOverridesRespectExceptionsAndBounds() throws {
+        var rule: [String: Any] = [
+            "urlPattern": ".*", "namePattern": "campaign", "action": "remove", "exceptions": ["/login(?=[/?#]|$)"],
+        ]
+        func catalog(_ entries: [[String: Any]]) throws -> TrackingRuleCatalog {
+            try TrackingRuleCatalog.load(from: JSONSerialization.data(withJSONObject: [
+                "global": ["utm_source"], "domains": [String: [String]](), "parameterRules": entries,
+            ]))
+        }
+        let normal = try catalog([rule])
+        #expect(normal.rules(for: "example.com", url: "https://example.com/").contains("campaign"))
+        #expect(!normal.rules(for: "example.com", url: "https://example.com/login").contains("campaign"))
+        rule["namePattern"] = String(repeating: "x", count: TrackingRuleCatalog.maxRulePatternLength + 1)
+        #expect(try !catalog([rule]).rules(for: "example.com", url: "https://example.com/").contains("utm_source"))
+        rule["namePattern"] = "campaign"
+        #expect(try !catalog(Array(repeating: rule, count: TrackingRuleCatalog.maxTotalRuleCount / 3 + 1))
+            .rules(for: "example.com", url: "https://example.com/").contains("utm_source"))
+    }
+
     @Test func providerExceptionsDoNotDisableOtherApplicableProviders() {
         let data = #"""
         {
