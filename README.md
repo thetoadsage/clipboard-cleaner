@@ -85,6 +85,8 @@ for the full license/attribution details and exactly what was excluded and why.
 YouTube `/watch` links with a video ID, an `RD…` radio playlist, and
 `start_radio=1` also have `list` and `start_radio` removed. Regular playlists,
 timestamps, and other non-tracking parameters are preserved.
+Video `/watch` links carrying an `FL…` playlist also have `list` and its
+`index` removed, leaving the individual video and any timestamp intact.
 YouTube `/shorts/<video>` links also have the `is` share parameter removed.
 
 To refresh the catalog from upstream (a manual maintainer step requiring
@@ -154,7 +156,7 @@ in Finder. It is suitable for sharing directly with friends, but the app is
 only ad-hoc signed, so Gatekeeper will require them to right-click the app and
 choose **Open** the first time. Developer ID signing and notarization are
 needed for a warning-free public distribution. The latest public build is
-[Clipboard Cleaner v1.0.1](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.1).
+[Clipboard Cleaner v1.0.2](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.2).
 
 On macOS 13 or later, use the menu's **Launch at Login** toggle. It is backed
 by Apple's `SMAppService`; macOS 12 users can still add the app manually in
@@ -245,9 +247,14 @@ project's audit history for the full account; summary:
   just code review.
 - **Clipboard formats**: automatic cleaning accepts only a single item
   containing plain text, optionally accompanied by `public.url` and URL
-  metadata that browsers or macOS add when copying a link. It skips rich text,
-  HTML, images, files, unknown representations without `public.url`, and
-  multi-item copies to avoid discarding accompanying content. The explicit
+  metadata that browsers or macOS add when copying a link. A URL-only HTML
+  fragment is also supported when it contains exactly one link whose visible
+  text and destination both match the copied URL. The app updates both text
+  and HTML while preserving its formatting. This includes Chromium/Electron
+  copies with source metadata and no `public.url`. It skips other rich text,
+  HTML with additional content, images, files, unknown representations without
+  `public.url`, and multi-item copies. HTML validation never renders content
+  or loads external resources. The explicit
   **Clean Current Clipboard** action still replaces a changed URL with plain
   text, discarding other representations of that clipboard content.
 

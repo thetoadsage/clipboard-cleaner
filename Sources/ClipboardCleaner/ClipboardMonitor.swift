@@ -133,6 +133,8 @@ final class ClipboardMonitor {
         // type names vary between browsers and macOS releases, so a URL item
         // may carry types we have not seen before. When public.url is present,
         // allow metadata but explicitly reject rich or content-bearing types.
+        // A narrowly validated URL-only HTML fragment is handled separately
+        // below, preserving its formatting and updating its destination.
         // Multiple items are always skipped because they cannot be safely
         // rewritten after clearContents().
         let safeURLTypes: Set<NSPasteboard.PasteboardType> = [
@@ -146,6 +148,7 @@ final class ClipboardMonitor {
         ]
         let contentBearingTypes: Set<NSPasteboard.PasteboardType> = [
             .html,
+            NSPasteboard.PasteboardType("Apple HTML pasteboard type"),
             .rtf,
             .rtfd,
             .tiff,
@@ -161,13 +164,34 @@ final class ClipboardMonitor {
               types.contains(.string) else { return }
         let isPlainTextOnly = types.allSatisfy({ safeURLTypes.contains($0) })
         let isURLWithMetadata = types.contains(.URL) && types.allSatisfy({ !contentBearingTypes.contains($0) })
-        guard isPlainTextOnly || isURLWithMetadata else { return }
+        let htmlTypes: Set<NSPasteboard.PasteboardType> = [.html, NSPasteboard.PasteboardType("Apple HTML pasteboard type")]
+        let chromiumMetadata: Set<NSPasteboard.PasteboardType> = [
+            NSPasteboard.PasteboardType("org.chromium.internal.source-rfh-token"),
+            NSPasteboard.PasteboardType("org.chromium.source-url"),
+        ]
+        let isHTMLURLCandidate = types.contains(where: { htmlTypes.contains($0) })
+            && types.allSatisfy { safeURLTypes.contains($0) || htmlTypes.contains($0) || chromiumMetadata.contains($0) }
+        guard isPlainTextOnly || isURLWithMetadata || isHTMLURLCandidate else { return }
         guard let text = pasteboard.string(forType: .string) else { return }
 
         let result = URLCleaner.cleanWithDetails(text)
         guard result.cleaned != text else { return }
 
-        if writeToPasteboard(result.cleaned, ifStillAt: observedChangeCount) {
+        var extraRepresentations = [NSPasteboard.PasteboardType: String]()
+        if isHTMLURLCandidate {
+            // Only a single displayed URL with the same anchor destination
+            // may be rewritten. Preserve the HTML styling and keep every
+            // advertised HTML representation in sync with the plain text.
+            for type in types where htmlTypes.contains(type) {
+                guard let html = pasteboard.string(forType: type),
+                    let cleanedHTML = URLOnlyHTML.clean(html, original: text, cleaned: result.cleaned)
+                else { return }
+                extraRepresentations[type] = cleanedHTML
+            }
+            if types.contains(.URL) { extraRepresentations[.URL] = result.cleaned }
+        }
+
+        if writeToPasteboard(result.cleaned, ifStillAt: observedChangeCount, extraRepresentations: extraRepresentations) {
             statisticsStore.recordCleanedLink(parametersRemoved: result.parametersRemoved)
             historyStore.record(original: text, cleaned: result.cleaned)
             onLinkCleaned?()
@@ -193,7 +217,10 @@ final class ClipboardMonitor {
     }
 
     @discardableResult
-    private func writeToPasteboard(_ string: String, ifStillAt expectedChangeCount: Int) -> Bool {
+    private func writeToPasteboard(
+        _ string: String, ifStillAt expectedChangeCount: Int,
+        extraRepresentations: [NSPasteboard.PasteboardType: String] = [:]
+    ) -> Bool {
         guard pasteboard.changeCount == expectedChangeCount else {
             // Something else wrote to the pasteboard between our read and
             // this write -- don't overwrite it with a cleaned version of
@@ -202,7 +229,10 @@ final class ClipboardMonitor {
         }
 
         _ = pasteboard.clearContents()
-        let succeeded = pasteboard.setString(string, forType: .string)
+        var succeeded = pasteboard.setString(string, forType: .string)
+        for (type, representation) in extraRepresentations.sorted(by: { $0.key.rawValue < $1.key.rawValue }) where succeeded {
+            succeeded = pasteboard.setString(representation, forType: type)
+        }
         // clearContents/setString bump changeCount; capture the new value so
         // this write (including a failed set after clear) is never mistaken
         // for external clipboard activity.

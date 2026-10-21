@@ -110,6 +110,36 @@ struct URLCleanerTests {
 
     // MARK: - YouTube share and radio parameters
 
+    @Test func removesFavoritesContextFromReportedYoutubeURL() {
+        let input = "https://www.youtube.com/watch?v=g-sgw9bPV4A&list=FLexampleFavorites&index=15"
+        let result = URLCleaner.cleanWithDetails(input)
+        #expect(result.cleaned == "https://www.youtube.com/watch?v=g-sgw9bPV4A")
+        #expect(result.parametersRemoved == 2)
+        #expect(URLCleaner.cleanWithDetails(result.cleaned).parametersRemoved == 0)
+    }
+
+    @Test(arguments: ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"])
+    func removesFavoritesContextButKeepsOtherVideoParameters(host: String) {
+        let result = URLCleaner.cleanWithDetails("https://\(host)/watch?index=15&list=FLexampleFavorites&v=g-sgw9bPV4A&si=share&t=42&custom=keep#chapter")
+        #expect(result.cleaned == "https://\(host)/watch?v=g-sgw9bPV4A&t=42&custom=keep#chapter")
+        #expect(result.parametersRemoved == 3)
+    }
+
+    @Test(arguments: [
+        "https://www.youtube.com/watch?v=g-sgw9bPV4A&list=PL123&index=15",
+        "https://www.youtube.com/watch?v=g-sgw9bPV4A&list=RD123&index=15",
+        "https://www.youtube.com/watch?v=g-sgw9bPV4A&list=FL&index=15",
+        "https://www.youtube.com/watch?v=g-sgw9bPV4A&index=15",
+        "https://www.youtube.com/playlist?list=FLexampleFavorites&index=15",
+        "https://www.youtube.com/watch?list=FLexampleFavorites&index=15",
+        "https://www.youtube.com/watch?v=&list=FLexampleFavorites&index=15",
+        "https://youtube.com.example.com/watch?v=g-sgw9bPV4A&list=FLexampleFavorites&index=15",
+        "https://notyoutube.com/watch?v=g-sgw9bPV4A&list=FLexampleFavorites&index=15",
+    ])
+    func preservesParametersOutsideYoutubeFavoritesVideo(input: String) {
+        #expect(URLCleaner.clean(input) == input)
+    }
+
     @Test func removesIsFromReportedYoutubeShortsURL() {
         let result = URLCleaner.cleanWithDetails("https://youtube.com/shorts/h_isSAjpKU0?is=DKp3rCKWT2W9d6Zr")
         #expect(result.cleaned == "https://youtube.com/shorts/h_isSAjpKU0")

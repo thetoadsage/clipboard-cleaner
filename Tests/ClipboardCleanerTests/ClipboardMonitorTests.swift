@@ -79,6 +79,62 @@ struct ClipboardMonitorTests {
         #expect(store.linksCleaned == 1)
     }
 
+    @Test func chromiumHTMLURLCopyIsCleanedWithoutDiscardingFormatting() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let (store, suite) = makeStore()
+        defer { removeSuite(suite) }
+        let monitor = ClipboardMonitor(pasteboard: pasteboard, statisticsStore: store)
+        let original = "https://www.youtube.com/watch?v=g-sgw9bPV4A&list=FLexampleFavorites&index=15"
+        let cleaned = "https://www.youtube.com/watch?v=g-sgw9bPV4A"
+        let escaped = original.replacingOccurrences(of: "&", with: "&amp;")
+        let html = "<meta charset='utf-8'><a href=\"\(escaped)\" title=\"\(escaped)\" style=\"color: blue\"><span>\(escaped)</span></a>"
+        let alias = NSPasteboard.PasteboardType("Apple HTML pasteboard type")
+        pasteboard.clearContents()
+        try #require(pasteboard.setString(original, forType: .string))
+        try #require(pasteboard.setString(html, forType: .html))
+        try #require(pasteboard.setString(html, forType: alias))
+        try #require(pasteboard.setString("opaque-token", forType: NSPasteboard.PasteboardType("org.chromium.internal.source-rfh-token")))
+        try #require(pasteboard.setString("https://example.com/", forType: NSPasteboard.PasteboardType("org.chromium.source-url")))
+
+        monitor.pollPasteboard()
+
+        #expect(pasteboard.string(forType: .string) == cleaned)
+        let expectedHTML = html.replacingOccurrences(of: escaped, with: cleaned)
+        #expect(pasteboard.string(forType: .html) == expectedHTML)
+        #expect(pasteboard.string(forType: alias) == expectedHTML)
+        #expect(store.linksCleaned == 1)
+        #expect(store.parametersRemoved == 2)
+        monitor.pollPasteboard()
+        #expect(store.linksCleaned == 1)
+    }
+
+    @Test(arguments: [
+        "<a href='$URL'>A descriptive title</a>",
+        "<a href='$URL'>$URL</a><p>More content</p>",
+        "<a href='https://other.example/'>$URL</a>",
+        "<a href='$URL'>$URL<img src='https://example.com/image.png'/></a>",
+    ])
+    func automaticHTMLCleaningPreservesRichContent(template: String) throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let (store, suite) = makeStore()
+        defer { removeSuite(suite) }
+        let monitor = ClipboardMonitor(pasteboard: pasteboard, statisticsStore: store)
+        let original = "https://example.com/?utm_source=test"
+        let html = template.replacingOccurrences(of: "$URL", with: original)
+        pasteboard.clearContents()
+        try #require(pasteboard.setString(original, forType: .string))
+        try #require(pasteboard.setString(original, forType: .URL))
+        try #require(pasteboard.setString(html, forType: .html))
+        let before = pasteboard.changeCount
+        monitor.pollPasteboard()
+        #expect(pasteboard.changeCount == before)
+        #expect(pasteboard.string(forType: .string) == original)
+        #expect(pasteboard.string(forType: .html) == html)
+        #expect(store.linksCleaned == 0)
+    }
+
     @Test func failedWritesDoNotIncrementStatisticsAndAreNotRetried() {
         let pasteboard = MockPasteboard()
         let (store, suite) = makeStore()

@@ -90,19 +90,26 @@ public enum URLCleaner {
             && pathParts.count == 3
             && pathParts[1] == "shorts"
             && !pathParts[2].isEmpty
+        let isYoutubeVideo = host.map { HostMatching.matches(host: $0, domain: "youtube.com") } == true
+            && components.path == "/watch"
+            && originalItems.contains { $0.name == "v" && !($0.value ?? "").isEmpty }
         // A radio launch carries generated playlist context rather than an
         // explicitly selected playlist. Require both radio markers and a
         // watch URL with a video before dropping that context; ordinary
         // playlists and timestamps must survive.
-        let removesRadioContext = host.map { HostMatching.matches(host: $0, domain: "youtube.com") } == true
-            && components.path == "/watch"
-            && originalItems.contains { $0.name == "v" && !($0.value ?? "").isEmpty }
+        let removesRadioContext = isYoutubeVideo
             && originalItems.contains { $0.name == "list" && ($0.value ?? "").hasPrefix("RD") }
             && originalItems.contains { $0.name == "start_radio" && $0.value == "1" }
+        // FL playlist context and its position are unnecessary when sharing
+        // the individual video. Keep other playlists and standalone indexes.
+        let removesFavoritesContext = isYoutubeVideo && originalItems.contains {
+            $0.name == "list" && ($0.value ?? "").hasPrefix("FL") && ($0.value ?? "").count > 2
+        }
         let filteredItems = originalItems.filter {
             !applicableRules.contains($0.name)
                 && !(removesShortsShareParameter && $0.name.lowercased() == "is")
                 && !(removesRadioContext && ($0.name == "list" || $0.name == "start_radio"))
+                && !(removesFavoritesContext && ($0.name == "list" || $0.name == "index"))
         }
 
         guard filteredItems.count != originalItems.count else {
