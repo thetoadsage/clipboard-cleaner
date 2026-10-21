@@ -12,7 +12,20 @@ links. Everything runs locally.
 2. Open it and drag **Clipboard Cleaner** into **Applications**.
 3. Launch the app and look for the clipboard icon in the menu bar.
 
-Builds are ad-hoc signed and not notarized.
+### First launch
+
+Builds are ad-hoc signed and not notarized, so macOS may block the first launch.
+
+1. Try opening **Clipboard Cleaner**, then dismiss the warning.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to **Security** near the bottom and click **Open Anyway** beside the
+   Clipboard Cleaner warning.
+4. Authenticate if asked, then click **Open** to confirm.
+
+You can open the app normally afterward. If **Open Anyway** isn't visible,
+try launching the app again first. On macOS 12, use **System Preferences →
+Security & Privacy → General** instead.
+[Apple's instructions](https://support.apple.com/en-us/102445).
 
 ## What it cleans
 
