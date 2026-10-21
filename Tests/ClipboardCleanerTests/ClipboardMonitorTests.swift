@@ -288,6 +288,40 @@ struct ClipboardMonitorTests {
         #expect(store.linksCleaned == 0)
     }
 
+    @Test(arguments: [
+        "org.nspasteboard.ConcealedType",
+        "org.nspasteboard.TransientType",
+        "com.apple.NSFilePromiseItemMetaData",
+        "Apple files promise pasteboard type",
+    ], [false, true])
+    func automaticCleaningSkipsProtectedCopiesBeforeReadingText(marker: String, includesHTML: Bool) {
+        let pasteboard = MockPasteboard()
+        let (store, suite) = makeStore()
+        defer { removeSuite(suite) }
+        let history = HistoryStore()
+        history.isEnabled = true
+        let monitor = ClipboardMonitor(pasteboard: pasteboard, statisticsStore: store, historyStore: history)
+        var notifications = 0
+        monitor.onLinkCleaned = { notifications += 1 }
+        var types: [NSPasteboard.PasteboardType] = [.string, .URL, .init(marker)]
+        if includesHTML { types.append(.html) }
+        let original = "https://example.com/?utm_source=test"
+        pasteboard.simulateExternalWrite(original, types: types)
+
+        monitor.pollPasteboard()
+        monitor.pollPasteboard()
+
+        #expect(pasteboard.stringReadCount == 0)
+        #expect(pasteboard.clearCount == 0)
+        #expect(pasteboard.setStringCount == 0)
+        #expect(pasteboard.text == original)
+        #expect(pasteboard.types == types)
+        #expect(store.linksCleaned == 0)
+        #expect(store.parametersRemoved == 0)
+        #expect(history.entries.isEmpty)
+        #expect(notifications == 0)
+    }
+
     @Test func automaticCleaningSkipsMultipleItems() {
         let pasteboard = MockPasteboard()
         let (store, suite) = makeStore()

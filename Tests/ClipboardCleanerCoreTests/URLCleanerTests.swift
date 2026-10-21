@@ -583,7 +583,7 @@ struct URLCleanerTests {
             ("https://www.xiaohongshu.com/explore/abc?xsec_token=token&xsec_source=share", "https://www.xiaohongshu.com/explore/abc?xsec_token=token"),
             ("https://www.webtoons.com/en/example/viewer?title_no=1&episode_no=2&utm_source=share", "https://www.webtoons.com/en/example/viewer?title_no=1&episode_no=2"),
             ("https://weatherkit.apple.com/alert?lang=en&party=abc&ids=1&utm_source=share", "https://weatherkit.apple.com/alert?lang=en&party=abc&ids=1"),
-            ("https://www.reddit.com/media?url=https%3A%2F%2Fexample.com%2Fimage.jpg&rdt=123", "https://www.reddit.com/media?url=https://example.com/image.jpg"),
+            ("https://www.reddit.com/media?url=https%3A%2F%2Fexample.com%2Fimage.jpg&rdt=123", "https://www.reddit.com/media?url=https%3A%2F%2Fexample.com%2Fimage.jpg"),
         ]
     )
     func functionalParametersSurviveTrackingRemoval(input: String, expected: String) {

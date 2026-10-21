@@ -39,11 +39,14 @@ Security & Privacy → General** instead.
 
 Site-specific exceptions protect reviewed login and redirect parameters.
 Unknown parameters are kept outside the product/model rewrites above.
+Tracker removal preserves the spelling of surviving query parameters,
+including percent escapes.
 Shorteners such as `bit.ly` and `t.co` stay unchanged because resolving them
 would require a network request.
 
 Automatic cleaning supports single copied URLs, including matching URL-only
 HTML links. Other rich content, images, files, and multi-item copies are skipped.
+Copies marked concealed or transient, and file promises, are also skipped.
 
 ## Use
 

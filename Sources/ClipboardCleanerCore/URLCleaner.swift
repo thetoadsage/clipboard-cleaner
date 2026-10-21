@@ -65,7 +65,7 @@ public enum URLCleaner {
             let scheme = url.scheme?.lowercased(),
             scheme == "http" || scheme == "https",
             url.host != nil,
-            var components = URLComponents(string: candidate)
+            let components = URLComponents(string: candidate)
         else {
             return CleaningResult(cleaned: input, parametersRemoved: 0)
         }
@@ -78,9 +78,10 @@ public enum URLCleaner {
             return CleaningResult(cleaned: canonical, parametersRemoved: removedCount)
         }
 
-        guard let originalItems = components.queryItems, !originalItems.isEmpty else {
+        guard let query = RawQuery(candidate) else {
             return CleaningResult(cleaned: candidate, parametersRemoved: unwrapped.parametersRemoved)
         }
+        let originalItems = query.items
 
         let host = url.host?.lowercased()
         let applicableRules = TrackingRuleCatalog.shared.rules(for: host, url: candidate)
@@ -118,8 +119,55 @@ public enum URLCleaner {
         }
 
         let removedCount = (originalItems.count - filteredItems.count) + unwrapped.parametersRemoved
-        components.queryItems = filteredItems.isEmpty ? nil : filteredItems
-        return CleaningResult(cleaned: components.string ?? candidate, parametersRemoved: removedCount)
+        let remainingQuery = filteredItems.isEmpty ? "" : "?" + filteredItems.map(\.raw).joined(separator: "&")
+        return CleaningResult(
+            cleaned: query.prefix + remainingQuery + query.fragment,
+            parametersRemoved: removedCount
+        )
+    }
+
+    /// Foundation still validates the URL and supplies host/path scope above.
+    /// Parse the original query separately: serializing decoded query items
+    /// can change escapes in values the cleaner has no reason to touch, and
+    /// literal Unicode can cause Foundation to escape an existing '%' again.
+    /// Only decoded names/values are used for matching; output uses raw pairs.
+    private struct RawQuery {
+        struct Item {
+            let raw: String
+            let name: String
+            let value: String?
+
+            init(_ bytes: Substring.UTF8View.SubSequence) {
+                raw = String(decoding: bytes, as: UTF8.self)
+                let equals = bytes.firstIndex(of: 0x3D) ?? bytes.endIndex
+                let rawName = String(decoding: bytes[..<equals], as: UTF8.self)
+                name = rawName.removingPercentEncoding ?? rawName
+                if equals == bytes.endIndex {
+                    value = nil
+                } else {
+                    let rawValue = String(decoding: bytes[bytes.index(after: equals)...], as: UTF8.self)
+                    value = rawValue.removingPercentEncoding ?? rawValue
+                }
+            }
+        }
+
+        let prefix: String
+        let fragment: String
+        let items: [Item]
+
+        init?(_ input: String) {
+            // ASCII delimiter bytes stay recognizable even when followed by
+            // combining marks in the same Swift Character. Never split on a
+            // percent-encoded delimiter or a '?' inside the fragment.
+            let bytes = input.utf8
+            let hash = bytes.firstIndex(of: 0x23) ?? bytes.endIndex
+            guard let question = bytes[..<hash].firstIndex(of: 0x3F) else { return nil }
+            prefix = String(decoding: bytes[..<question], as: UTF8.self)
+            fragment = String(decoding: bytes[hash...], as: UTF8.self)
+            items = bytes[bytes.index(after: question)..<hash]
+                .split(separator: 0x26, omittingEmptySubsequences: false)
+                .map(Item.init)
+        }
     }
 
     /// Returns true if `input` looks like a URL this cleaner would inspect

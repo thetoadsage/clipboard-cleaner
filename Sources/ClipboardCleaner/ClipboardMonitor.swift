@@ -158,10 +158,19 @@ final class ClipboardMonitor {
             .multipleTextSelection,
             NSPasteboard.PasteboardType("NSFilenamesPboardType"),
         ]
+        // These copies have special ownership or privacy semantics. Reject
+        // them before requesting text, even if they also advertise public.url.
+        let protectedTypes: Set<NSPasteboard.PasteboardType> = [
+            NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+            NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+            NSPasteboard.PasteboardType("com.apple.NSFilePromiseItemMetaData"),
+            NSPasteboard.PasteboardType("Apple files promise pasteboard type"),
+        ]
         guard pasteboard.numberOfItems == 1,
               let types = pasteboard.types,
               !types.isEmpty,
-              types.contains(.string) else { return }
+              types.contains(.string),
+              protectedTypes.isDisjoint(with: types) else { return }
         let isPlainTextOnly = types.allSatisfy({ safeURLTypes.contains($0) })
         let isURLWithMetadata = types.contains(.URL) && types.allSatisfy({ !contentBearingTypes.contains($0) })
         let htmlTypes: Set<NSPasteboard.PasteboardType> = [.html, NSPasteboard.PasteboardType("Apple HTML pasteboard type")]
