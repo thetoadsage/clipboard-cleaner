@@ -3,6 +3,44 @@ import Testing
 @testable import ClipboardCleanerCore
 
 struct TrackingRuleCatalogTests {
+    @Test func providerExceptionsDoNotDisableOtherApplicableProviders() {
+        let data = #"""
+        {
+            "global": [], "domains": {},
+            "providers": [
+                {"urlPattern": "^https://example\\.com/", "exceptions": ["/search\\?"], "rules": ["q", "qid"]},
+                {"urlPattern": "^https://example\\.com/search\\?", "exceptions": [], "rules": ["qid"]}
+            ]
+        }
+        """#.data(using: .utf8)!
+        let catalog = TrackingRuleCatalog.load(from: data)
+        let rules = catalog.rules(for: "example.com", url: "https://example.com/search?q=keep&qid=share")
+        #expect(!rules.contains("q"))
+        #expect(rules.contains("qid"))
+        #expect(catalog.rules(for: "example.com", url: "https://example.com/other?q=share").contains("q"))
+    }
+
+    @Test(arguments: ["[", String(repeating: "a", count: TrackingRuleCatalog.maxRulePatternLength + 1)])
+    func invalidProviderExceptionDisablesCatalog(exception: String) throws {
+        let json: [String: Any] = [
+            "global": ["utm_source"], "domains": [String: [String]](),
+            "providers": [["urlPattern": ".*", "exceptions": [exception], "rules": ["q"]]],
+        ]
+        let catalog = TrackingRuleCatalog.load(from: try JSONSerialization.data(withJSONObject: json))
+        let rules = catalog.rules(for: "example.com", url: "https://example.com/?q=keep&utm_source=keep")
+        #expect(!rules.contains("q"))
+        #expect(!rules.contains("utm_source"))
+    }
+
+    @Test(arguments: ["urlPattern", "rules"])
+    func invalidProviderPatternsDisableCatalog(field: String) throws {
+        var provider: [String: Any] = ["urlPattern": ".*", "exceptions": [String](), "rules": ["q"]]
+        provider[field] = field == "urlPattern" ? "[" : ["["]
+        let json: [String: Any] = ["global": ["utm_source"], "domains": [String: [String]](), "providers": [provider]]
+        let catalog = TrackingRuleCatalog.load(from: try JSONSerialization.data(withJSONObject: json))
+        #expect(!catalog.rules(for: "example.com", url: "https://example.com/?q=keep").contains("utm_source"))
+    }
+
     @Test func hostRulesAreSelectedTogetherWithGlobalRules() {
         let data = #"""
         {

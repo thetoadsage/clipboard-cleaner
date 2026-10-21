@@ -12,25 +12,23 @@ private final class CatalogBundleAnchor: NSObject {}
 /// as a case-insensitive, fully-anchored regex.
 ///
 /// The rules file is treated strictly as data: parsed with `JSONDecoder`
-/// into plain `[String]` arrays, never interpreted or executed as code.
+/// into string arrays and provider records, never executed as code.
 /// Loading validates the file's size and shape before trusting it (see
 /// `isCatalogWithinSafeBounds`) and fails safely to an empty catalog -- not
 /// a crash -- on anything malformed, oversized, or otherwise unexpected.
 struct TrackingRuleCatalog {
 
     /// Upper bound on the bundled resource file's raw byte size. The real
-    /// file is ~18KB as of this writing; this leaves generous headroom for
+    /// file is well below this limit; this leaves generous headroom for
     /// legitimate catalog growth while rejecting a corrupted or tampered
     /// file before it's even JSON-decoded.
     static let maxResourceFileSizeBytes = 5_000_000
 
     /// Upper bound on the total number of rule pattern strings across every
-    /// section of the file combined. The real catalog has ~770 as of this
-    /// writing.
+    /// section, including provider URL patterns and exceptions.
     static let maxTotalRuleCount = 20_000
 
-    /// Upper bound on any single rule pattern string's length. The longest
-    /// real pattern is 37 characters.
+    /// Upper bound on any single rule, URL, or exception pattern's length.
     static let maxRulePatternLength = 500
 
     /// Query parameter names longer than this are never checked against the
@@ -57,7 +55,14 @@ struct TrackingRuleCatalog {
         let regexes: [NSRegularExpression]
     }
 
-    /// Rules selected for one host. Constructing this once per URL avoids
+    private struct ProviderEntry {
+        let urlPattern: NSRegularExpression
+        let exceptions: [NSRegularExpression]
+        let literal: Set<String>
+        let regexes: [NSRegularExpression]
+    }
+
+    /// Rules selected for one URL. Constructing this once per URL avoids
     /// repeating domain matching for every query item in that URL.
     struct ApplicableRules {
         let literal: Set<String>
@@ -74,16 +79,23 @@ struct TrackingRuleCatalog {
     }
 
     private struct CatalogFile: Decodable {
+        struct Provider: Decodable {
+            let urlPattern: String
+            let exceptions: [String]
+            let rules: [String]
+        }
         let global: [String]
         let localGlobalAdditions: [String]?
         let domains: [String: [String]]
         let wildcardTLDDomains: [String: [String]]?
+        let providers: [Provider]?
     }
 
     private let globalLiteral: Set<String>
     private let globalRegex: [NSRegularExpression]
     private let domainEntries: [DomainEntry]
     private let wildcardDomainEntries: [WildcardDomainEntry]
+    private let providerEntries: [ProviderEntry]
 
     static let shared = TrackingRuleCatalog.loadBundled()
 
@@ -91,18 +103,20 @@ struct TrackingRuleCatalog {
         globalLiteral: [],
         globalRegex: [],
         domainEntries: [],
-        wildcardDomainEntries: []
+        wildcardDomainEntries: [],
+        providerEntries: []
     )
 
     /// Returns true if `name` is a known tracking parameter, either
-    /// globally or specifically for `host` (and its subdomains).
-    func isTrackingParameter(_ name: String, host: String?) -> Bool {
-        return rules(for: host).contains(name)
+    /// globally or specifically for `host` (and its subdomains). Provider
+    /// rules require the full URL to evaluate paths and exceptions.
+    func isTrackingParameter(_ name: String, host: String?, url: String? = nil) -> Bool {
+        return rules(for: host, url: url).contains(name)
     }
 
-    /// Selects global and host-specific rules once for a URL. The returned
+    /// Selects global, host, and provider rules once for a URL. The returned
     /// value is intentionally short-lived; no URL or host cache is retained.
-    func rules(for host: String?) -> ApplicableRules {
+    func rules(for host: String?, url: String? = nil) -> ApplicableRules {
         var literal = globalLiteral
         var regexes = globalRegex
 
@@ -118,6 +132,25 @@ struct TrackingRuleCatalog {
         for entry in wildcardDomainEntries where entry.wildcardBase.matches(host: host) {
             literal.formUnion(entry.literal)
             regexes.append(contentsOf: entry.regexes)
+        }
+
+        // Evaluate each provider against the original URL, once per clean.
+        // Never merge its rules into another provider's exception scope.
+        if let url, var components = URLComponents(string: url) {
+            // Upstream exceptions omit ports and credentials. Normalize the
+            // authority for both matching steps so neither can bypass them.
+            components.port = nil
+            components.user = nil
+            components.password = nil
+            let matchingURL = components.string ?? url
+            let range = NSRange(matchingURL.startIndex..<matchingURL.endIndex, in: matchingURL)
+            for entry in providerEntries {
+                guard entry.urlPattern.firstMatch(in: matchingURL, range: range) != nil,
+                    !entry.exceptions.contains(where: { $0.firstMatch(in: matchingURL, range: range) != nil })
+                else { continue }
+                literal.formUnion(entry.literal)
+                regexes.append(contentsOf: entry.regexes)
+            }
         }
 
         return ApplicableRules(literal: literal, regexes: regexes)
@@ -195,11 +228,14 @@ struct TrackingRuleCatalog {
             return .empty
         }
 
+        let providers = file.providers ?? []
+        let providerPatterns = providers.flatMap { [$0.urlPattern] + $0.exceptions + $0.rules }
         let allPatterns =
             file.global
             + (file.localGlobalAdditions ?? [])
             + file.domains.values.flatMap { $0 }
             + (file.wildcardTLDDomains ?? [:]).values.flatMap { $0 }
+            + providerPatterns
 
         guard isCatalogWithinSafeBounds(allPatterns: allPatterns) else {
             return .empty
@@ -217,11 +253,32 @@ struct TrackingRuleCatalog {
             return WildcardDomainEntry(wildcardBase: wildcardBase, literal: literal, regexes: regex)
         }
 
+        var providerEntries = [ProviderEntry]()
+        for provider in providers {
+            // A malformed exception must never silently enable its rules.
+            guard let urlPattern = try? NSRegularExpression(pattern: provider.urlPattern, options: [.caseInsensitive])
+            else { return .empty }
+            var exceptions = [NSRegularExpression]()
+            for pattern in provider.exceptions {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+                else { return .empty }
+                exceptions.append(regex)
+            }
+            guard provider.rules.allSatisfy({
+                (try? NSRegularExpression(pattern: "^(?:\($0))$", options: [.caseInsensitive])) != nil
+            }) else { return .empty }
+            let (literal, regexes) = classify(provider.rules)
+            providerEntries.append(ProviderEntry(
+                urlPattern: urlPattern, exceptions: exceptions, literal: literal, regexes: regexes
+            ))
+        }
+
         return TrackingRuleCatalog(
             globalLiteral: globalLiteral,
             globalRegex: globalRegex,
             domainEntries: domainEntries,
-            wildcardDomainEntries: wildcardDomainEntries
+            wildcardDomainEntries: wildcardDomainEntries,
+            providerEntries: providerEntries
         )
     }
 

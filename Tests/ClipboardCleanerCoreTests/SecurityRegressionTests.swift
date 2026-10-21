@@ -43,7 +43,7 @@ struct SecurityRegressionTests {
         // match this shape if the length guard didn't short-circuit first.
         let longName = "gs_" + String(repeating: "a", count: 600)
         #expect(longName.utf8.count > TrackingRuleCatalog.maxParameterNameLength)
-        #expect(TrackingRuleCatalog.shared.isTrackingParameter(longName, host: "www.google.com") == false)
+        #expect(TrackingRuleCatalog.shared.isTrackingParameter(longName, host: "www.google.com", url: "https://www.google.com/search?q=keep") == false)
 
         let input = "https://www.google.com/search?\(longName)=x&q=swift"
         #expect(URLCleaner.clean(input) == input)
@@ -79,7 +79,7 @@ struct SecurityRegressionTests {
         let adversarial = "vn" + String(repeating: "_a", count: 200)
         #expect(adversarial.utf8.count <= TrackingRuleCatalog.maxParameterNameLength)
         assertCompletesQuickly {
-            _ = TrackingRuleCatalog.shared.isTrackingParameter(adversarial, host: "example.com")
+            _ = TrackingRuleCatalog.shared.isTrackingParameter(adversarial, host: "example.com", url: "https://example.com/")
         }
     }
 
@@ -248,7 +248,7 @@ struct SecurityRegressionTests {
         // vs Bundle.module vs SwiftPM-managed-process detection) -- proves
         // the real shipped rules data is actually reachable in whatever
         // environment the test suite is currently running under.
-        #expect(TrackingRuleCatalog.shared.isTrackingParameter("utm_source", host: nil) == true)
-        #expect(TrackingRuleCatalog.shared.isTrackingParameter("si", host: "youtu.be") == true)
+        #expect(TrackingRuleCatalog.shared.rules(for: "example.com", url: "https://example.com/").contains("utm_source"))
+        #expect(TrackingRuleCatalog.shared.rules(for: "youtu.be", url: "https://youtu.be/video").contains("si"))
     }
 }

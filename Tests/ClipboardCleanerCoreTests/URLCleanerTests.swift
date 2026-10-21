@@ -110,6 +110,32 @@ struct URLCleanerTests {
 
     // MARK: - YouTube share and radio parameters
 
+    @Test func removesIsFromReportedYoutubeShortsURL() {
+        let result = URLCleaner.cleanWithDetails("https://youtube.com/shorts/h_isSAjpKU0?is=DKp3rCKWT2W9d6Zr")
+        #expect(result.cleaned == "https://youtube.com/shorts/h_isSAjpKU0")
+        #expect(result.parametersRemoved == 1)
+        #expect(URLCleaner.cleanWithDetails(result.cleaned).parametersRemoved == 0)
+    }
+
+    @Test(arguments: ["youtube.com", "www.youtube.com", "m.youtube.com"])
+    func removesIsFromYoutubeShortsButKeepsOtherParameters(host: String) {
+        let result = URLCleaner.cleanWithDetails("https://\(host)/shorts/h_isSAjpKU0?is=share&si=share&t=42&custom=value#chapter")
+        #expect(result.cleaned == "https://\(host)/shorts/h_isSAjpKU0?t=42&custom=value#chapter")
+        #expect(result.parametersRemoved == 2)
+    }
+
+    @Test(arguments: [
+        "https://example.com/shorts/h_isSAjpKU0?is=value",
+        "https://youtube.com.example.com/shorts/h_isSAjpKU0?is=value",
+        "https://notyoutube.com/shorts/h_isSAjpKU0?is=value",
+        "https://youtube.com/watch?v=h_isSAjpKU0&is=value",
+        "https://youtube.com/shorts/?is=value",
+        "https://youtube.com/shorts/h_isSAjpKU0/other?is=value",
+    ])
+    func preservesIsOutsideYoutubeShorts(input: String) {
+        #expect(URLCleaner.clean(input) == input)
+    }
+
     @Test func removesYoutubeRadioContextFromReportedURL() {
         let input = "https://www.youtube.com/watch?v=A7lLHJ6yfH0&list=RDA7lLHJ6yfH0&start_radio=1"
         let result = URLCleaner.cleanWithDetails(input)
@@ -326,7 +352,8 @@ struct URLCleanerTests {
             ("https://example.com/payment?paymentToken=keep&utm_source=email", "https://example.com/payment?paymentToken=keep"),
             ("https://www.amazon.com/gp/cart/view.html?cartToken=keep&utm_source=email", "https://www.amazon.com/gp/cart/view.html?cartToken=keep"),
             ("https://www.aliexpress.com/p/payment?paymentToken=keep&utm_source=email", "https://www.aliexpress.com/p/payment?paymentToken=keep"),
-            ("https://accounts.google.com/o/oauth2/auth?client_id=keep&utm_source=email", "https://accounts.google.com/o/oauth2/auth?client_id=keep"),
+            // ClearURLs excludes Google account flows, including global rules.
+            ("https://accounts.google.com/o/oauth2/auth?client_id=keep&utm_source=email", "https://accounts.google.com/o/oauth2/auth?client_id=keep&utm_source=email"),
         ]
     )
     func sensitiveFlowsPreserveFunctionalParameters(input: String, expected: String) {

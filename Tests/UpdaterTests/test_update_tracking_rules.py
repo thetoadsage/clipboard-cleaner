@@ -1,4 +1,6 @@
 import importlib.util
+import re
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -44,8 +46,71 @@ class UpdateTrackingRulesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-string 'rules' array"):
             updater.validate_upstream_schema(data)
 
-    def test_expected_skipped_provider_set_is_explicit(self):
-        self.assertEqual(updater.EXPECTED_SKIPPED_PROVIDERS, {"weibo"})
+    def test_country_alternations_keep_brand_and_host_boundary(self):
+        patterns = [
+            (r"airbnb\.(com|ae|ca|co\.in|co\.nz|co\.uk|co\.za|com\.au|com\.mt|com\.sg|de|gy|ie)", "airbnb.co.uk", "example.co.uk"),
+            (r"shopee\.(com|co\.th|tw)", "shopee.co.th", "example.co.th"),
+            (r"lazada\.(com|co\.th|co\.id|com\.my|com\.ph|sg|vn)", "lazada.com.my", "example.com.my"),
+            (r"mercadoli[bv]re\.com", "mercadolivre.com", "re.com"),
+            (r"nikkei\.co(?:m|\.jp)", "nikkei.co.jp", "nikkei.co"),
+            (r"weibo\.(cn|com)", "weibo.cn", "example.com"),
+        ]
+        for expression, good, bad in patterns:
+            with self.subTest(expression=expression):
+                regex = re.compile(updater.scoped_url_pattern("^https?://(?:[a-z0-9-]+\\.)*?" + expression))
+                self.assertRegex("https://www." + good + "/page", regex)
+                for host in [bad, good + ".example.com", "not" + good]:
+                    self.assertNotRegex("https://" + host + "/page", regex)
+
+    def test_paths_and_literal_dots_are_preserved(self):
+        regex = re.compile(updater.scoped_url_pattern(r"^https?://(?:[a-z0-9-]+\.)*?linkedin\.com/learning"))
+        self.assertRegex("https://linkedin.com/learning/course", regex)
+        self.assertNotRegex("https://linkedin.com/profile?u=123", regex)
+        self.assertNotRegex("https://linkedin.com.example.com/learning", regex)
+        twitter = updater.scoped_url_pattern(r"^https?://(?:[a-z0-9-]+\.)*?twitter.com")
+        self.assertNotRegex("https://twitterXcom/", twitter)
+
+    def test_unsupported_patterns_abort_without_replacing_catalog(self):
+        data = {"providers": {"unknown": {"urlPattern": r"^https?://example\.(?:com|.*)", "rules": ["x"]}}}
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "catalog.json"
+            output.write_text("original")
+            with patch.object(updater, "fetch_pinned_upstream", return_value=("a" * 40, data)), patch.object(updater, "OUTPUT_PATH", output):
+                with self.assertRaisesRegex(ValueError, "unsupported host pattern"):
+                    updater.main()
+            self.assertEqual(output.read_text(), "original")
+        for pattern in [r"^https?://example\.com/unknown.*", r"^https?://.*"]:
+            with self.assertRaisesRegex(ValueError, "unsupported"):
+                updater.scoped_url_pattern(pattern)
+
+    def test_provider_exceptions_remain_separate_in_generated_catalog(self):
+        exception = r"^https?://example\.com/search"
+        data = {"providers": {
+            "globalRules": {"urlPattern": ".*", "rules": ["utm_source"], "exceptions": [exception]},
+            "site": {"urlPattern": r"^https?://example\.com", "rules": ["keywords"], "exceptions": [exception]},
+            "search": {"urlPattern": r"^https?://example\.com/s\?", "rules": ["qid"]},
+        }}
+        generated = updater.build_catalog("a" * 40, data)
+        providers = {p["name"]: p for p in generated["providers"]}
+        self.assertEqual(providers["globalRules"]["exceptions"], [exception])
+        self.assertEqual(providers["site"]["exceptions"], [exception])
+        self.assertEqual(providers["search"]["rules"], ["qid"])
+        self.assertEqual(generated["domains"], updater.LOCAL_DOMAIN_ADDITIONS)
+
+    def test_rejects_malformed_or_invalid_exceptions(self):
+        for exceptions in ["not-an-array", [123], ["["]]:
+            with self.subTest(exceptions=exceptions):
+                with self.assertRaises((ValueError, re.error)):
+                    updater.build_catalog("a" * 40, {"providers": {"site": {
+                        "urlPattern": r"^https?://example\.com", "rules": ["x"], "exceptions": exceptions,
+                    }}})
+
+    def test_rejects_patterns_exceeding_runtime_limits(self):
+        for rules in [["x" * (updater.MAX_PATTERN_BYTES + 1)], ["x"] * updater.MAX_PATTERN_COUNT]:
+            with self.assertRaisesRegex(ValueError, "oversized|count limit"):
+                updater.build_catalog("a" * 40, {"providers": {"site": {
+                    "urlPattern": r"^https?://example\.com", "rules": rules,
+                }}})
 
 
 if __name__ == "__main__":

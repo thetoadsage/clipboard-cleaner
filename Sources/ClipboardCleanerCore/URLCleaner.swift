@@ -82,7 +82,14 @@ public enum URLCleaner {
         }
 
         let host = url.host?.lowercased()
-        let applicableRules = TrackingRuleCatalog.shared.rules(for: host)
+        let applicableRules = TrackingRuleCatalog.shared.rules(for: host, url: candidate)
+        // Some Shorts share links use `is` instead of `si`. Scope this
+        // additional name to a Shorts video so unrelated uses survive.
+        let pathParts = components.path.split(separator: "/", omittingEmptySubsequences: false)
+        let removesShortsShareParameter = host.map { HostMatching.matches(host: $0, domain: "youtube.com") } == true
+            && pathParts.count == 3
+            && pathParts[1] == "shorts"
+            && !pathParts[2].isEmpty
         // A radio launch carries generated playlist context rather than an
         // explicitly selected playlist. Require both radio markers and a
         // watch URL with a video before dropping that context; ordinary
@@ -94,6 +101,7 @@ public enum URLCleaner {
             && originalItems.contains { $0.name == "start_radio" && $0.value == "1" }
         let filteredItems = originalItems.filter {
             !applicableRules.contains($0.name)
+                && !(removesShortsShareParameter && $0.name.lowercased() == "is")
                 && !(removesRadioContext && ($0.name == "list" || $0.name == "start_radio"))
         }
 

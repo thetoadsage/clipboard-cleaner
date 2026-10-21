@@ -6,14 +6,18 @@
 the [ClearURLs/Rules](https://github.com/ClearURLs/Rules) catalog, licensed
 under the [GNU Lesser General Public License v3.0](ClearURLs-Rules-LGPL-3.0.txt).
 
-Only the `rules` field (query parameter names/patterns to strip) is used,
-re-expressed in this project's own JSON schema. Not included: `rawRules`,
-`redirections`/`forceRedirection`, `completeProvider`, `exceptions`, or
-`referralMarketing` — see `scripts/update_tracking_rules.py` for the full
-rationale and the exact filtering logic.
+The `rules` field (query parameter names/patterns to strip), `urlPattern`,
+and `exceptions` are re-expressed in this project's own JSON schema.
+Provider path restrictions and exceptions remain separate; host patterns
+are validated and bounded to prevent matching unrelated domains. Not
+included: `rawRules`, `redirections`/`forceRedirection`, providers with
+`completeProvider: true`, or `referralMarketing` — see
+`scripts/update_tracking_rules.py` for the exact conversion logic.
 
-The `localGlobalAdditions` array in `tracking-rules.json` is hand-maintained
-by this project and is *not* derived from ClearURLs.
+The `localGlobalAdditions` and `localDomainAdditions` in
+`tracking-rules.json` are hand-maintained by this project and are *not*
+derived from ClearURLs. Local domain additions are also emitted in `domains`
+for runtime matching.
 
 To refresh the ClearURLs-derived portion of the catalog:
 
@@ -21,5 +25,5 @@ To refresh the ClearURLs-derived portion of the catalog:
 python3 scripts/update_tracking_rules.py
 ```
 
-This is a manual, offline maintenance step — the app itself never makes
-network requests.
+This is a manual maintenance step requiring internet access. The app itself
+never makes network requests.

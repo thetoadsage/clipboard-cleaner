@@ -4,17 +4,16 @@ Maintainer-only tool. NOT run by the app, NOT called at build time.
 
 Fetches the ClearURLs rule catalog (github.com/ClearURLs/Rules, LGPL-3.0),
 keeps only the parts relevant to local, automatic query-parameter removal
-(the `rules` arrays, plus the special "globalRules" provider), and writes a
+(the `rules` arrays with their URL patterns and exceptions), and writes a
 compact resource file in this project's own schema:
 
     Sources/ClipboardCleanerCore/Resources/tracking-rules.json
 
 Deliberately dropped from the upstream data: `rawRules` (regex over the
 whole URL), `redirections`/`forceRedirection` (unwrap embedded URLs -- a
-different feature), `completeProvider` (block a URL outright), `exceptions`
-(skip-lists for things like login pages), and `referralMarketing` (params
-like bare `ref`/`referrer` that ClearURLs itself treats as optional/off by
-default, since they're often legitimate).
+different feature), `completeProvider` (block a URL outright), and
+`referralMarketing` (params like bare `ref`/`referrer` that ClearURLs itself
+treats as optional/off by default, since they're often legitimate).
 
 Run this occasionally by hand to refresh the catalog:
 
@@ -34,7 +33,10 @@ from pathlib import Path
 
 COMMIT_API_URL = "https://api.github.com/repos/ClearURLs/Rules/commits/master"
 RULES_URL_TEMPLATE = "https://raw.githubusercontent.com/ClearURLs/Rules/{sha}/data.min.json"
-EXPECTED_SKIPPED_PROVIDERS = {"weibo"}
+# Match TrackingRuleCatalog's runtime limits so an update cannot produce a
+# resource the app would reject as oversized.
+MAX_PATTERN_BYTES = 500
+MAX_PATTERN_COUNT = 20_000
 
 # Hand-maintained, NOT derived from ClearURLs -- a small number of
 # well-known, unambiguous global tracking parameters not yet present in the
@@ -56,34 +58,58 @@ OUTPUT_PATH = (
     / "tracking-rules.json"
 )
 
-DOMAIN_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9\-]*(?:\\?\.[a-z0-9][a-z0-9\-]*)+", re.IGNORECASE)
-WILDCARD_TLD_RE = re.compile(r"([a-z0-9\-]+)\(\?:\\\.\[a-z\]\{2,\}\)\{1,\}")
 PARAM_PREFIX_RE = re.compile(r"^\(\?:%3F\)\?")
+# Explicitly reviewed host expressions that cannot be read as literal
+# domains. Keep the entire expression; never extract domain-like fragments.
+REVIEWED_HOST_EXPRESSIONS = {
+    r"(youtube\.com|youtu\.be)",
+    r"(?:yandex(?:\.[a-z]{2,}){1,}|ya\.ru)",
+    r"(?:accounts\.)?firefox\.com",
+    r"(?:support\.)?mozilla\.org",
+    r"nikkei\.co(?:m|\.jp)",
+    r"weibo\.(cn|com)",
+    r"mercadoli[bv]re\.com",
+    r"airbnb\.(com|ae|ca|co\.in|co\.nz|co\.uk|co\.za|com\.au|com\.mt|com\.sg|de|gy|ie)",
+    r"shopee\.(com|co\.th|tw)",
+    r"lazada\.(com|co\.th|co\.id|com\.my|com\.ph|sg|vn)",
+}
+REVIEWED_PATH_EXPRESSIONS = {
+    "", r"/s\?", "/learning", r"/ClearUrls/void/index\.html",
+    r"/void/index\.html", r"/search/\?",
+}
 
 
-def resolve_wildcard_base(url_pattern: str) -> str | None:
-    """If `url_pattern` uses ClearURLs' "word(?:\\.[a-z]{2,}){1,}" multi-TLD
-    idiom (e.g. "amazon(?:\\.[a-z]{2,}){1,}", matching amazon.com,
-    amazon.co.uk, amazon.us, ...), returns the base word ("amazon"). The app
-    matches this generically at runtime (see HostMatching.WildcardBase)
-    instead of this script trying to enumerate every real-world TLD -- an
-    enumerated list is inherently incomplete (this is the bug being fixed:
-    aliexpress.us was silently unmatched because "us" wasn't on the list)."""
-    match = WILDCARD_TLD_RE.search(url_pattern)
-    return match.group(1) if match else None
+def scoped_url_pattern(pattern: str) -> str:
+    """Accept only reviewed URL shapes and enforce an authority boundary.
 
-
-def resolve_literal_domains(url_pattern: str) -> list[str]:
-    """Best-effort extraction of literal, fixed-TLD domain(s) a provider's
-    urlPattern matches (e.g. "facebook\\.com", or an alternation like
-    "(youtube\\.com|youtu\\.be)"). Not a regex engine -- just this one shape."""
-    tokens = DOMAIN_TOKEN_RE.findall(url_pattern)
-    domains = []
-    for token in tokens:
-        cleaned = token.replace("\\.", ".").lower()
-        if cleaned not in domains:
-            domains.append(cleaned)
-    return domains
+    Patterns stay whole, including path restrictions. Unknown expressions
+    abort regeneration rather than widening scope or silently losing hosts.
+    """
+    normalized = pattern.replace(r"\/", "/")
+    if normalized.startswith("^https?://"):
+        remainder = normalized[len("^https?://"):]
+    elif normalized == r"https?://([a-z0-9-.]*\.)shutterstock\.com":
+        return r"^https?://(?:[a-z0-9-]+\.)+shutterstock\.com(?::[0-9]+)?(?=[/?#]|$)"
+    else:
+        raise ValueError(f"unsupported URL pattern: {pattern!r}")
+    host, separator, tail = remainder.partition("/")
+    path = separator + tail
+    prefix = r"(?:[a-z0-9-]+\.)*?"
+    subdomains = prefix if host.startswith(prefix) else ""
+    body = host[len(subdomains):]
+    if body in REVIEWED_HOST_EXPRESSIONS:
+        safe_host = body
+    elif re.fullmatch(r"[a-z0-9-]+(?:(?:\\\.|\.)[a-z0-9-]+)+", body.replace(r"\-", "-")):
+        safe_host = re.escape(body.replace(r"\.", ".").replace(r"\-", "-"))
+    elif re.fullmatch(r"[a-z0-9-]+(?:\\\.[a-z0-9-]+)*\(\?:\\\.\[a-z\]\{2,\}\)\{1,\}", body):
+        safe_host = body
+    else:
+        raise ValueError(f"unsupported host pattern: {body!r}")
+    if path not in REVIEWED_PATH_EXPRESSIONS:
+        raise ValueError(f"unsupported path pattern: {path!r}")
+    if path and not path.endswith(r"\?"):
+        path += r"(?=[/?#]|$)"
+    return "^https?://" + subdomains + "(?:" + safe_host + r")(?::[0-9]+)?(?=[/?#]|$)" + path
 
 
 def clean_rule_pattern(pattern: str) -> str:
@@ -128,70 +154,47 @@ def validate_upstream_schema(data: object) -> dict:
             raise ValueError(f"provider {name!r} has rules but no string 'urlPattern'")
         if "completeProvider" in provider and not isinstance(provider["completeProvider"], bool):
             raise ValueError(f"provider {name!r} has a non-boolean 'completeProvider'")
+        exceptions = provider.get("exceptions", [])
+        if not isinstance(exceptions, list) or not all(isinstance(p, str) for p in exceptions):
+            raise ValueError(f"provider {name!r} has a non-string 'exceptions' array")
 
     return providers
 
 
-def main() -> int:
-    commit_sha, data = fetch_pinned_upstream()
+def build_catalog(commit_sha: str, data: object) -> dict:
     providers = validate_upstream_schema(data)
-
-    global_rules: list[str] = []
-    domain_rules: dict[str, list[str]] = {}
-    wildcard_domain_rules: dict[str, list[str]] = {}
-    skipped: list[str] = []
-
+    scoped_providers = []
     for name, provider in providers.items():
         rules = provider.get("rules") or []
-        if not rules:
+        if not rules or provider.get("completeProvider"):
             continue
-
         cleaned_rules = [clean_rule_pattern(r) for r in rules]
-
         if name == "globalRules":
-            global_rules = cleaned_rules
-            continue
+            if provider.get("urlPattern") != ".*":
+                raise ValueError("unexpected globalRules URL pattern")
+            url_pattern = ".*"
+        else:
+            url_pattern = scoped_url_pattern(provider["urlPattern"])
+        exceptions = provider.get("exceptions", [])
+        for pattern in [url_pattern, *exceptions, *cleaned_rules]:
+            if len(pattern.encode("utf-8")) > MAX_PATTERN_BYTES:
+                raise ValueError(f"oversized pattern in provider {name!r}")
+            re.compile(pattern, re.IGNORECASE)
+        scoped_providers.append({
+            "name": name, "urlPattern": url_pattern,
+            "exceptions": exceptions, "rules": cleaned_rules,
+        })
 
-        if provider.get("completeProvider"):
-            continue
+    pattern_count = len(LOCAL_GLOBAL_ADDITIONS) + sum(map(len, LOCAL_DOMAIN_ADDITIONS.values()))
+    pattern_count += sum(1 + len(p["exceptions"]) + len(p["rules"]) for p in scoped_providers)
+    if pattern_count > MAX_PATTERN_COUNT:
+        raise ValueError("catalog exceeds runtime pattern count limit")
 
-        wildcard_base = resolve_wildcard_base(provider["urlPattern"])
-        if wildcard_base:
-            existing = wildcard_domain_rules.setdefault(wildcard_base, [])
-            for rule in cleaned_rules:
-                if rule not in existing:
-                    existing.append(rule)
-            continue
-
-        domains = resolve_literal_domains(provider["urlPattern"])
-        if not domains:
-            skipped.append(name)
-            continue
-
-        for domain in domains:
-            existing = domain_rules.setdefault(domain, [])
-            for rule in cleaned_rules:
-                if rule not in existing:
-                    existing.append(rule)
-
-    skipped_set = set(skipped)
-    if skipped_set != EXPECTED_SKIPPED_PROVIDERS:
-        raise ValueError(
-            "unexpected set of skipped providers: "
-            f"expected {sorted(EXPECTED_SKIPPED_PROVIDERS)}, got {sorted(skipped_set)}"
-        )
-
-    for domain, additions in LOCAL_DOMAIN_ADDITIONS.items():
-        existing = domain_rules.setdefault(domain, [])
-        for rule in additions:
-            if rule not in existing:
-                existing.append(rule)
-
-    output = {
+    return {
         "source": "Derived from ClearURLs/Rules (https://github.com/ClearURLs/Rules), LGPL-3.0",
         "sourceCommit": commit_sha,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "global": global_rules,
+        "global": [],
         "localGlobalAdditionsNote": (
             "Hand-maintained entries below are NOT derived from ClearURLs; "
             "see LOCAL_GLOBAL_ADDITIONS in scripts/update_tracking_rules.py."
@@ -202,27 +205,19 @@ def main() -> int:
             "they are reviewed for the named domain only."
         ),
         "localDomainAdditions": LOCAL_DOMAIN_ADDITIONS,
-        "domains": dict(sorted(domain_rules.items())),
-        "wildcardTLDDomainsNote": (
-            "Keys are base labels (e.g. \"amazon\"), matched at runtime "
-            "against any subdomain and any TLD chain of 2+ letter labels "
-            "(amazon.com, amazon.co.uk, amazon.us, ...) -- see "
-            "HostMatching.WildcardBase in the Swift source. Not an "
-            "enumerated TLD list, so no supported country/TLD variant is "
-            "silently missed."
-        ),
-        "wildcardTLDDomains": dict(sorted(wildcard_domain_rules.items())),
+        "domains": LOCAL_DOMAIN_ADDITIONS,
+        "providers": sorted(scoped_providers, key=lambda p: p["name"]),
     }
 
+
+def main() -> int:
+    commit_sha, data = fetch_pinned_upstream()
+    output = build_catalog(commit_sha, data)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
 
     print(f"Wrote {OUTPUT_PATH}")
-    print(f"  global rules: {len(global_rules)}")
-    print(f"  domains: {len(domain_rules)}")
-    print(f"  wildcard-TLD domains: {len(wildcard_domain_rules)} ({', '.join(sorted(wildcard_domain_rules))})")
-    if skipped:
-        print(f"  skipped providers (no resolvable domain): {', '.join(sorted(skipped))}")
+    print(f"  scoped providers: {len(output['providers'])}")
 
     return 0
 

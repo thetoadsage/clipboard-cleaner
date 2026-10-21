@@ -53,42 +53,54 @@ runs locally — no network access at runtime.
 
 Layers 1 and 2 were designed by studying the *behavior* of
 [corbindavenport/link-cleaner](https://github.com/corbindavenport/link-cleaner)
-(GPL-3.0) — an allowlist/canonical-rewrite browser extension — as a design
+(GPL-3.0) — a web app with allowlist/canonical-rewrite behavior — as a design
 reference. No code from that project was read, copied, or incorporated;
 the Swift implementation here is independent.
 
 ## The tracking-parameter catalog
 
 `tracking-rules.json` is generated from the [ClearURLs/Rules](https://github.com/ClearURLs/Rules)
-catalog (LGPL-3.0) plus a small hand-maintained list of additions. It has
-two kinds of rules:
+catalog (LGPL-3.0) plus a small hand-maintained list of additions. It keeps
+each provider's rules, URL scope, and exceptions together:
 
-- **Global** — stripped from any URL (e.g. `utm_*`, `fbclid`, `gclid`).
-- **Domain-scoped** — stripped only on specific domains and their
-  subdomains, because the parameter name isn't unambiguous elsewhere (e.g.
+- **Global** — stripped across sites, subject to upstream exceptions
+  (e.g. `utm_*`, `fbclid`, `gclid`).
+- **Provider-scoped** — stripped only when the full URL matches a provider's
+  host and path restrictions and none of that provider's exceptions (e.g.
   `si` only on `youtube.com`/`youtu.be`, `igshid` only on `instagram.com`,
   `ved`/`gs_*` only on `google.*`).
 
-Only the "which query parameters are tracking" data is used — not
-ClearURLs' redirector-unwrapping, exception lists, or URL-blocking
-features. See [THIRD_PARTY_LICENSES/README.md](THIRD_PARTY_LICENSES/README.md)
+Global rules also retain their upstream exceptions. For example, Amazon
+search links keep `keywords`, and Google account flows retain parameters
+excluded from cleaning by upstream. Provider host patterns are bounded so
+an Airbnb country-domain rule cannot affect unrelated `.co.uk` sites.
+Local additions are maintained separately and apply only within their
+explicit global or domain scope.
+
+ClearURLs' redirector-unwrapping, whole-URL substitution, URL-blocking,
+and optional referral-marketing features are not imported.
+See [THIRD_PARTY_LICENSES/README.md](THIRD_PARTY_LICENSES/README.md)
 for the full license/attribution details and exactly what was excluded and why.
 
 YouTube `/watch` links with a video ID, an `RD…` radio playlist, and
 `start_radio=1` also have `list` and `start_radio` removed. Regular playlists,
 timestamps, and other non-tracking parameters are preserved.
+YouTube `/shorts/<video>` links also have the `is` share parameter removed.
 
-To refresh the catalog from upstream (a manual, offline step — never run by
-the app itself):
+To refresh the catalog from upstream (a manual maintainer step requiring
+internet access — never run by the app itself):
 
 ```bash
 python3 scripts/update_tracking_rules.py
 ```
 
 The updater resolves the upstream `master` commit first and downloads the
-catalog by immutable commit SHA. It rejects unexpected schema changes and any
-change to the explicitly reviewed set of skipped providers instead of silently
-producing different rules.
+catalog by immutable commit SHA. It validates the schema, regular expressions,
+and pattern sizes, and rejects unfamiliar host or path expressions before
+replacing the catalog. Complex host alternatives are explicitly reviewed;
+domain-like fragments are never extracted from arbitrary expressions.
+All providers with query-removal rules are imported unless they block the
+entire URL. Matching and cleaning remain entirely offline at runtime.
 
 ## Running during development
 
@@ -203,7 +215,7 @@ project's audit history for the full account; summary:
   empirically confirming (via a disposable sandboxed probe binary) that the
   App Sandbox entitlement blocks network access at the OS level, not just
   by code review. The only networked code in this repository is
-  `scripts/update_tracking_rules.py`, a manual, offline, maintainer-only
+  `scripts/update_tracking_rules.py`, a manual, networked, maintainer-only
   tool that is never bundled into the app and never run by it.
 - **App Sandbox is enabled** (`com.apple.security.app-sandbox`, no other
   entitlements) on the built `.app`. This is a deny-by-default,
@@ -218,7 +230,7 @@ project's audit history for the full account; summary:
   written back to the pasteboard — the monitor only touches the pasteboard
   when `URLCleaner.clean` actually changed something.
 - **The tracking-rules catalog is data, not code.** It's parsed with
-  `JSONDecoder` into plain `[String]` arrays; rule strings are only ever
+  `JSONDecoder` into string arrays and provider records; rule strings are only ever
   used as exact-match `Set` lookups or `NSRegularExpression` patterns,
   never executed. Loading validates the file's size and shape
   (`TrackingRuleCatalog.isCatalogWithinSafeBounds`) and fails safely to an
