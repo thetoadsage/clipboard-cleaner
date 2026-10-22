@@ -25,7 +25,7 @@ struct RuleScopeRegressionTests {
         "https://accounts.google.com/o/oauth2/auth?client_id=demo&source=required&utm_source=required",
         "https://docs.google.com/document/d/123?source=required",
         "https://youtube.com/signin?si=required&feature=required",
-        "https://github.com/owner/repo?utm_source=required",
+        "https://github.com/owner/repo?fbclid=required",
     ])
     func preservesParametersOutsideProviderScope(input: String) {
         #expect(URLCleaner.clean(input) == input)

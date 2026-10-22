@@ -57,6 +57,9 @@ LOCAL_DOMAIN_ADDITIONS = {
     "kkinstagram.com": ["mdxt"],
     # User-reported Instagram reel share token.
     "instagram.com": ["dlrf"],
+    # ClearURLs exempts GitHub from generic rules; remove only reviewed UTM
+    # campaign names here while retaining its other parameter exceptions.
+    "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
 }
 OUTPUT_PATH = (
     Path(__file__).resolve().parent.parent

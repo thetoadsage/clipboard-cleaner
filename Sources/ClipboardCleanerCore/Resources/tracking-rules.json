@@ -19,6 +19,14 @@
     ],
     "instagram.com": [
       "dlrf"
+    ],
+    "github.com": [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "utm_id"
     ]
   },
   "domains": {
@@ -30,6 +38,14 @@
     ],
     "instagram.com": [
       "dlrf"
+    ],
+    "github.com": [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "utm_id"
     ]
   },
   "providers": [
