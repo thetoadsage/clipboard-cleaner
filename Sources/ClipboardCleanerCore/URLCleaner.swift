@@ -58,6 +58,22 @@ public enum URLCleaner {
             return CleaningResult(cleaned: input, parametersRemoved: 0)
         }
 
+        // A selection can include spaces or blank lines beside its sole URL.
+        // Ignore that padding for parsing, but never interpret padded prose
+        // or multiple links as a single URL. Leave the original selection
+        // unchanged when there is no tracking/wrapper/canonical cleanup.
+        let candidate = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate != input,
+           candidate.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+            return CleaningResult(cleaned: input, parametersRemoved: 0)
+        }
+        let result = cleanURLWithDetails(candidate)
+        return result.cleaned == candidate
+            ? CleaningResult(cleaned: input, parametersRemoved: result.parametersRemoved)
+            : result
+    }
+
+    private static func cleanURLWithDetails(_ input: String) -> CleaningResult {
         let unwrapped = RedirectUnwrapper.fullyUnwrap(input)
         let candidate = unwrapped.result
 

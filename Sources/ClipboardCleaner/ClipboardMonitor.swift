@@ -145,6 +145,11 @@ final class ClipboardMonitor {
             NSPasteboard.PasteboardType("public.utf16-plain-text"),
             NSPasteboard.PasteboardType("public.utf16-external-plain-text"),
             NSPasteboard.PasteboardType("public.url-name"),
+            // macOS advertises these aliases alongside public.url, including
+            // when a copied URL also has an HTML representation.
+            NSPasteboard.PasteboardType("CorePasteboardFlavorType 0x75726C20"),
+            NSPasteboard.PasteboardType("dyn.ah62d4rv4gu8yc6durvwwaznwmuuha2pxsvw0e55bsmwca7d3sbwu"),
+            NSPasteboard.PasteboardType("Apple URL pasteboard type"),
         ]
         let contentBearingTypes: Set<NSPasteboard.PasteboardType> = [
             .html,
@@ -193,7 +198,11 @@ final class ClipboardMonitor {
             // advertised HTML representation in sync with the plain text.
             for type in types where htmlTypes.contains(type) {
                 guard let html = pasteboard.string(forType: type),
-                    let cleanedHTML = URLOnlyHTML.clean(html, original: text, cleaned: result.cleaned)
+                    let cleanedHTML = URLOnlyHTML.clean(
+                        html,
+                        original: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                        cleaned: result.cleaned
+                    )
                 else { return }
                 extraRepresentations[type] = cleanedHTML
             }

@@ -57,6 +57,49 @@ private final class MockPasteboard: ClipboardPasteboard {
 
 @MainActor
 struct ClipboardMonitorTests {
+    @Test(arguments: [" ", "\n\n", "\t\r\n"])
+    func automaticallyCleansPaddedInstagramURL(padding: String) {
+        let pasteboard = MockPasteboard()
+        let (store, suite) = makeStore()
+        defer { removeSuite(suite) }
+        let history = HistoryStore()
+        history.isEnabled = true
+        let monitor = ClipboardMonitor(pasteboard: pasteboard, statisticsStore: store, historyStore: history)
+        let original = padding + "https://www.instagram.com/reel/Dd27vP1NOKp/?dlrf=aTlxbHBnOXhucGlq" + padding
+        pasteboard.simulateExternalWrite(original)
+        monitor.pollPasteboard()
+        #expect(pasteboard.text == "https://www.instagram.com/reel/Dd27vP1NOKp/")
+        #expect(store.linksCleaned == 1)
+        #expect(store.parametersRemoved == 1)
+        #expect(history.entries.first?.original == original)
+        monitor.pollPasteboard()
+        #expect(store.linksCleaned == 1)
+    }
+
+    @Test func paddedHTMLURLCopyKeepsRepresentationsInSync() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let (store, suite) = makeStore()
+        defer { removeSuite(suite) }
+        let monitor = ClipboardMonitor(pasteboard: pasteboard, statisticsStore: store)
+        let original = "https://www.instagram.com/reel/Dd27vP1NOKp/?dlrf=aTlxbHBnOXhucGlq"
+        let cleaned = "https://www.instagram.com/reel/Dd27vP1NOKp/"
+        let html = "<div> <a href='\(original)'>\(original)</a> </div>"
+        let alias = NSPasteboard.PasteboardType("Apple HTML pasteboard type")
+        pasteboard.clearContents()
+        try #require(pasteboard.setString(" \n" + original + "\n ", forType: .string))
+        try #require(pasteboard.setString(original, forType: .URL))
+        try #require(pasteboard.setString(html, forType: .html))
+        try #require(pasteboard.setString(html, forType: alias))
+        let originalTypes = pasteboard.types
+        monitor.pollPasteboard()
+        #expect(pasteboard.string(forType: .string) == cleaned, "Types: \(originalTypes ?? [])")
+        #expect(pasteboard.string(forType: .URL) == cleaned)
+        #expect(pasteboard.string(forType: .html) == html.replacingOccurrences(of: original, with: cleaned))
+        #expect(pasteboard.string(forType: alias) == html.replacingOccurrences(of: original, with: cleaned))
+        #expect(store.linksCleaned == 1)
+    }
+
     private func makeStore() -> (StatisticsStore, String) {
         let suite = "ClipboardMonitorTests.\(UUID().uuidString)"
         return (StatisticsStore(defaults: UserDefaults(suiteName: suite)!), suite)

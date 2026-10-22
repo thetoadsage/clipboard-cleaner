@@ -4,7 +4,7 @@ A native macOS menu-bar app that automatically cleans copied links. Removes
 tracking parameters, unwraps supported redirects, and shortens selected product
 links. Everything runs locally.
 
-**[Download v1.0.3](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.3)** · macOS 12 or later
+**[Download v1.0.4](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.4)** · macOS 12 or later
 
 ## Install
 
@@ -46,6 +46,7 @@ would require a network request.
 
 Automatic cleaning supports single copied URLs, including matching URL-only
 HTML links. Other rich content, images, files, and multi-item copies are skipped.
+Spaces or blank lines around a single URL are removed when the link is cleaned.
 Copies marked concealed or transient, and file promises, are also skipped.
 
 ## Use
