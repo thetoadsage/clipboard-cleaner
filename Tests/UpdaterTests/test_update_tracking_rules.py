@@ -16,8 +16,10 @@ SPEC.loader.exec_module(updater)
 
 
 class UpdateTrackingRulesTests(unittest.TestCase):
-    def test_bundled_reviewed_rules_match_maintained_snapshot(self):
+    def test_bundled_rules_match_maintained_additions_and_snapshot(self):
         bundled = json.loads(updater.OUTPUT_PATH.read_text())
+        self.assertEqual(bundled["domains"], updater.LOCAL_DOMAIN_ADDITIONS)
+        self.assertEqual(bundled["localDomainAdditions"], updater.LOCAL_DOMAIN_ADDITIONS)
         regenerated = updater.add_reviewed_rules(copy.deepcopy(bundled))
         self.assertEqual(bundled["parameterRules"], regenerated["parameterRules"])
         self.assertEqual(bundled["reviewedSource"], regenerated["reviewedSource"])

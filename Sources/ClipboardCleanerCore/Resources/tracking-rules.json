@@ -13,11 +13,23 @@
   "localDomainAdditions": {
     "z-lib.gd": [
       "dsource"
+    ],
+    "kkinstagram.com": [
+      "mdxt"
+    ],
+    "instagram.com": [
+      "dlrf"
     ]
   },
   "domains": {
     "z-lib.gd": [
       "dsource"
+    ],
+    "kkinstagram.com": [
+      "mdxt"
+    ],
+    "instagram.com": [
+      "dlrf"
     ]
   },
   "providers": [

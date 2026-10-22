@@ -53,6 +53,10 @@ LOCAL_GLOBAL_ADDITIONS = ["wbraid", "gbraid", "gclsrc"]
 # tracking/share noise on a reviewed domain but unsafe to remove globally.
 LOCAL_DOMAIN_ADDITIONS = {
     "z-lib.gd": ["dsource"],
+    # User-reported reel share token; keep this name scoped to the mirror.
+    "kkinstagram.com": ["mdxt"],
+    # User-reported Instagram reel share token.
+    "instagram.com": ["dlrf"],
 }
 OUTPUT_PATH = (
     Path(__file__).resolve().parent.parent
