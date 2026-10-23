@@ -55,8 +55,11 @@ LOCAL_DOMAIN_ADDITIONS = {
     "z-lib.gd": ["dsource"],
     # User-reported reel share token; keep this name scoped to the mirror.
     "kkinstagram.com": ["mdxt"],
-    # User-reported Instagram reel/post share tokens.
-    "instagram.com": ["dlrf", "psln"],
+    # User-reported tokens plus reviewed Instagram sanitizer names (2026-10-23).
+    # https://github.com/crimera/piko/pull/2118/files (also #2117, #2113)
+    # https://fouadraheb.com/apt/package/com.fouadraheb.regram (rpxt/dlrf)
+    # Match exact names, not all four-letter keys; preserve content selectors.
+    "instagram.com": ["dlrf", "psln", "rpxt", "obrf", "vrfl", "cplk", "mdxt", "igsi", "si", "stkn"],
     # ClearURLs exempts GitHub from generic rules; remove only reviewed UTM
     # campaign names here while retaining its other parameter exceptions.
     "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
