@@ -61,12 +61,19 @@ LOCAL_DOMAIN_ADDITIONS = {
     # campaign names here while retaining its other parameter exceptions.
     "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
 }
-# User-reported product navigation context; retain fnode on category/search
-# pages. These local rules are independent of the uAssets snapshot.
+# User-reported navigation context, scoped by URL and (where needed) value.
+# These local rules are independent of the uAssets snapshot.
 LOCAL_PARAMETER_RULES = [{
     "id": "apple-product-fnode",
     "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?/(?:[a-z]{2}/)?shop/product/[^/?#]+",
     "namePattern": "fnode",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    "id": "apple-search-globalnav",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?/(?:[a-z]{2}/)?search(?:[/?#]|$)",
+    "namePattern": "src",
+    "valuePattern": "globalnav",
     "action": "remove",
     "exceptions": [],
 }]

@@ -2258,6 +2258,14 @@
       "namePattern": "fnode",
       "action": "remove",
       "exceptions": []
+    },
+    {
+      "id": "apple-search-globalnav",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*apple\\.com(?::[0-9]+)?/(?:[a-z]{2}/)?search(?:[/?#]|$)",
+      "namePattern": "src",
+      "valuePattern": "globalnav",
+      "action": "remove",
+      "exceptions": []
     }
   ]
 }
