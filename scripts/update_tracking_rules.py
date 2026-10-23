@@ -73,8 +73,46 @@ LOCAL_PARAMETER_RULES = [{
     "id": "apple-search-globalnav",
     "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?/(?:[a-z]{2}/)?search(?:[/?#]|$)",
     "namePattern": "src",
-    "valuePattern": "globalnav",
+    "valuePattern": "(?:globalnav|aos)",
     "action": "remove",
+    "exceptions": [],
+}, {
+    # Campaign identifiers observed in Apple shopping and Today links.
+    "id": "apple-store-campaign",
+    "urlPattern": r"^https?://(?:www\.)?apple\.com(?::[0-9]+)?/(?:[a-z]{2}/)?(?:shop|today)(?:[/?#]|$)",
+    "namePattern": "cid",
+    "valuePattern": r"(?:aos|rem|gn)-[a-z0-9_-]+",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    "id": "apple-support-campaign",
+    "urlPattern": r"^https?://support\.apple\.com(?::[0-9]+)?(?=[/?#]|$)",
+    "namePattern": "cid",
+    "valuePattern": r"(?:aos|rem|gn)-[a-z0-9_-]+",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    # Apple Services affiliate/campaign attribution; retain content selectors,
+    # language, media type and app routing. No blanket apple.com name removal.
+    "id": "apple-services-attribution",
+    "urlPattern": r"^https?://(?:geo\.)?(?:music|tv|podcasts|books|apps|itunes)\.apple\.com(?::[0-9]+)?(?=[/?#]|$)",
+    "namePattern": "(?:itscg|itsct|at|ct)",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    # App Store Connect documents pt as the developer/provider campaign token.
+    "id": "apple-appstore-provider-token",
+    "urlPattern": r"^https?://(?:apps|itunes)\.apple\.com(?::[0-9]+)?(?=[/?#]|$)",
+    "namePattern": "pt",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    # Override ClearURLs' broad app removal: app=messages selects iMessage;
+    # preserve unknown values too rather than guessing whether they route.
+    "id": "apple-preserve-app-selection",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?(?=[/?#]|$)",
+    "namePattern": "app",
+    "action": "preserve",
     "exceptions": [],
 }]
 OUTPUT_PATH = (

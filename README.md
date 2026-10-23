@@ -4,7 +4,7 @@ A native macOS menu-bar app that automatically cleans copied links. Removes
 tracking parameters, unwraps supported redirects, and shortens selected product
 links. Everything runs locally.
 
-**[Download v1.0.4](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.4)** · macOS 12 or later
+**[Download v1.0.5](https://github.com/thetoadsage/clipboard-cleaner/releases/tag/v1.0.5)** · macOS 12 or later
 
 ## Install
 

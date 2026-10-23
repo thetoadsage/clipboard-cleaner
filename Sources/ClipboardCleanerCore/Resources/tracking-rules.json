@@ -2263,8 +2263,45 @@
       "id": "apple-search-globalnav",
       "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*apple\\.com(?::[0-9]+)?/(?:[a-z]{2}/)?search(?:[/?#]|$)",
       "namePattern": "src",
-      "valuePattern": "globalnav",
+      "valuePattern": "(?:globalnav|aos)",
       "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "apple-store-campaign",
+      "urlPattern": "^https?://(?:www\\.)?apple\\.com(?::[0-9]+)?/(?:[a-z]{2}/)?(?:shop|today)(?:[/?#]|$)",
+      "namePattern": "cid",
+      "valuePattern": "(?:aos|rem|gn)-[a-z0-9_-]+",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "apple-support-campaign",
+      "urlPattern": "^https?://support\\.apple\\.com(?::[0-9]+)?(?=[/?#]|$)",
+      "namePattern": "cid",
+      "valuePattern": "(?:aos|rem|gn)-[a-z0-9_-]+",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "apple-services-attribution",
+      "urlPattern": "^https?://(?:geo\\.)?(?:music|tv|podcasts|books|apps|itunes)\\.apple\\.com(?::[0-9]+)?(?=[/?#]|$)",
+      "namePattern": "(?:itscg|itsct|at|ct)",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "apple-appstore-provider-token",
+      "urlPattern": "^https?://(?:apps|itunes)\\.apple\\.com(?::[0-9]+)?(?=[/?#]|$)",
+      "namePattern": "pt",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "apple-preserve-app-selection",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*apple\\.com(?::[0-9]+)?(?=[/?#]|$)",
+      "namePattern": "app",
+      "action": "preserve",
       "exceptions": []
     }
   ]
