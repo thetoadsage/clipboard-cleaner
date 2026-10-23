@@ -2251,6 +2251,13 @@
       "namePattern": ".*",
       "action": "preserve",
       "exceptions": []
+    },
+    {
+      "id": "apple-product-fnode",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*apple\\.com(?::[0-9]+)?/(?:[a-z]{2}/)?shop/product/[^/?#]+",
+      "namePattern": "fnode",
+      "action": "remove",
+      "exceptions": []
     }
   ]
 }

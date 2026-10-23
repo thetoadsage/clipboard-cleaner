@@ -61,6 +61,15 @@ LOCAL_DOMAIN_ADDITIONS = {
     # campaign names here while retaining its other parameter exceptions.
     "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
 }
+# User-reported product navigation context; retain fnode on category/search
+# pages. These local rules are independent of the uAssets snapshot.
+LOCAL_PARAMETER_RULES = [{
+    "id": "apple-product-fnode",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?/(?:[a-z]{2}/)?shop/product/[^/?#]+",
+    "namePattern": "fnode",
+    "action": "remove",
+    "exceptions": [],
+}]
 OUTPUT_PATH = (
     Path(__file__).resolve().parent.parent
     / "Sources"
@@ -192,7 +201,7 @@ def add_reviewed_rules(catalog: dict) -> dict:
         (p["exceptions"] for p in catalog["providers"] if p["name"] == "globalRules"), []
     )
     rules = []
-    for entry in entries:
+    for entry in entries + LOCAL_PARAMETER_RULES:
         if (not isinstance(entry, dict)
                 or set(entry) - {"id", "urlPattern", "namePattern", "valuePattern", "action", "exceptions"}
                 or not {"id", "urlPattern", "namePattern", "action", "exceptions"} <= set(entry)
