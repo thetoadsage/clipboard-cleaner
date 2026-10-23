@@ -2,6 +2,28 @@ import Testing
 @testable import ClipboardCleanerCore
 
 struct InstagramShareTests {
+    @Test func removesPslnFromReportedInstagramURL() {
+        let input = "https://www.instagram.com/p/Dez0wJLkqFS/?psln=MXhvMmhocTYxeHpoMQ=="
+        let expected = "https://www.instagram.com/p/Dez0wJLkqFS/"
+        let result = URLCleaner.cleanWithDetails(input)
+        #expect(result.cleaned == expected)
+        #expect(result.parametersRemoved == 1)
+        #expect(URLCleaner.cleanWithDetails(result.cleaned).parametersRemoved == 0)
+    }
+
+    @Test(arguments: ["instagram.com", "www.instagram.com", "m.instagram.com", "WWW.INSTAGRAM.COM:443"])
+    func removesPslnWhilePreservingOtherQuerySpellingAndFragment(host: String) {
+        let result = URLCleaner.cleanWithDetails("https://\(host)/p/abc/?next=%2fwatch%3Fx%3D1&PSLN=share&tag=a&tag=b&%70sln=again#photo%23one")
+        #expect(result.cleaned == "https://\(host)/p/abc/?next=%2fwatch%3Fx%3D1&tag=a&tag=b#photo%23one")
+        #expect(result.parametersRemoved == 2)
+    }
+
+    @Test func removesCombinedInstagramShareTokens() {
+        let result = URLCleaner.cleanWithDetails("https://www.instagram.com/p/abc/?psln=share&dlrf=share&id=42")
+        #expect(result.cleaned == "https://www.instagram.com/p/abc/?id=42")
+        #expect(result.parametersRemoved == 2)
+    }
+
     @Test func removesDlrfFromReportedInstagramURL() {
         let input = "https://www.instagram.com/reel/Dd27vP1NOKp/?dlrf=aTlxbHBnOXhucGlq"
         let expected = "https://www.instagram.com/reel/Dd27vP1NOKp/"
@@ -37,6 +59,12 @@ struct InstagramShareTests {
     }
 
     @Test(arguments: [
+        "https://example.com/p/abc/?psln=keep",
+        "https://notinstagram.com/p/abc/?psln=keep",
+        "https://instagram.com.example.com/p/abc/?psln=keep",
+        "https://instagramXcom/p/abc/?psln=keep",
+        "https://kkinstagram.com/p/abc/?psln=keep",
+        "https://instagram.com/p/abc/?psln_extra=keep&custom=keep",
         "https://example.com/reel/abc/?dlrf=keep",
         "https://notinstagram.com/reel/abc/?dlrf=keep",
         "https://instagram.com.example.com/reel/abc/?dlrf=keep",

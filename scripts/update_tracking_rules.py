@@ -55,8 +55,8 @@ LOCAL_DOMAIN_ADDITIONS = {
     "z-lib.gd": ["dsource"],
     # User-reported reel share token; keep this name scoped to the mirror.
     "kkinstagram.com": ["mdxt"],
-    # User-reported Instagram reel share token.
-    "instagram.com": ["dlrf"],
+    # User-reported Instagram reel/post share tokens.
+    "instagram.com": ["dlrf", "psln"],
     # ClearURLs exempts GitHub from generic rules; remove only reviewed UTM
     # campaign names here while retaining its other parameter exceptions.
     "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
