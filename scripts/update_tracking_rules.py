@@ -64,7 +64,7 @@ LOCAL_DOMAIN_ADDITIONS = {
     # campaign names here while retaining its other parameter exceptions.
     "github.com": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"],
 }
-# User-reported navigation context, scoped by URL and (where needed) value.
+# Reviewed navigation context, scoped by URL and (where needed) value.
 # These local rules are independent of the uAssets snapshot.
 LOCAL_PARAMETER_RULES = [{
     "id": "apple-product-fnode",
@@ -116,6 +116,32 @@ LOCAL_PARAMETER_RULES = [{
     "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*apple\.com(?::[0-9]+)?(?=[/?#]|$)",
     "namePattern": "app",
     "action": "preserve",
+    "exceptions": [],
+}, {
+    # Audited social sharing names (2026-10-23): independently scoped to
+    # content routes, leaving sign-in, redirects, search and API uses alone.
+    # Candidate evidence: uAssets 66966686c3c8ce74a08fa0d4ff99329367220c93,
+    # filters/privacy-removeparam.txt; AdGuard specific.txt has the same names.
+    # Preserve origin (player API), timestamps, playlists and playback options.
+    "id": "youtube-video-embed-attribution",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*youtube\.com(?::[0-9]+)?/(?:watch(?=[?#]|$)|(?:shorts|live|embed)/[^/?#]+/?(?=[?#]|$))",
+    "namePattern": "(?:embeds_referring_euri|embeds_referring_origin|source_ve_path)",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    # Do not extend status-link cleanup to /i/redirect signed email links.
+    "id": "twitter-status-context",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*(?:twitter\.com|x\.com)(?::[0-9]+)?/(?:[^/?#]+|i/web)/status/[0-9]+(?:/(?:photo|video)/[0-9]+)?/?(?=[?#]|$)",
+    "namePattern": "cxt",
+    "action": "remove",
+    "exceptions": [],
+}, {
+    # Referral/feed context only on permalinks; retain comment/context/sort
+    # selectors and leave opaque /s/ and reddit.app.link destinations alone.
+    "id": "reddit-post-referral-context",
+    "urlPattern": r"^https?://(?:[a-z0-9-]+\.)*reddit\.com(?::[0-9]+)?/(?:r/[^/?#]+/|user/[^/?#]+/)?comments/[a-z0-9]+(?:/[^?#]*)?(?=[?#]|$)",
+    "namePattern": "(?:entry_point|target_user|post_index|post_fullname|_branch_referrer)",
+    "action": "remove",
     "exceptions": [],
 }]
 OUTPUT_PATH = (

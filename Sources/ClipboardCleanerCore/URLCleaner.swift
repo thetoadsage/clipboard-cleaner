@@ -105,7 +105,7 @@ public enum URLCleaner {
         // additional name to a Shorts video so unrelated uses survive.
         let pathParts = components.path.split(separator: "/", omittingEmptySubsequences: false)
         let removesShortsShareParameter = host.map { HostMatching.matches(host: $0, domain: "youtube.com") } == true
-            && pathParts.count == 3
+            && (pathParts.count == 3 || (pathParts.count == 4 && pathParts[3].isEmpty))
             && pathParts[1] == "shorts"
             && !pathParts[2].isEmpty
         let isYoutubeVideo = host.map { HostMatching.matches(host: $0, domain: "youtube.com") } == true

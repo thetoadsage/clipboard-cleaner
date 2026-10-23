@@ -2321,6 +2321,27 @@
       "namePattern": "app",
       "action": "preserve",
       "exceptions": []
+    },
+    {
+      "id": "youtube-video-embed-attribution",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*youtube\\.com(?::[0-9]+)?/(?:watch(?=[?#]|$)|(?:shorts|live|embed)/[^/?#]+/?(?=[?#]|$))",
+      "namePattern": "(?:embeds_referring_euri|embeds_referring_origin|source_ve_path)",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "twitter-status-context",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*(?:twitter\\.com|x\\.com)(?::[0-9]+)?/(?:[^/?#]+|i/web)/status/[0-9]+(?:/(?:photo|video)/[0-9]+)?/?(?=[?#]|$)",
+      "namePattern": "cxt",
+      "action": "remove",
+      "exceptions": []
+    },
+    {
+      "id": "reddit-post-referral-context",
+      "urlPattern": "^https?://(?:[a-z0-9-]+\\.)*reddit\\.com(?::[0-9]+)?/(?:r/[^/?#]+/|user/[^/?#]+/)?comments/[a-z0-9]+(?:/[^?#]*)?(?=[?#]|$)",
+      "namePattern": "(?:entry_point|target_user|post_index|post_fullname|_branch_referrer)",
+      "action": "remove",
+      "exceptions": []
     }
   ]
 }
